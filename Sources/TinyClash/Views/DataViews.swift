@@ -91,36 +91,6 @@ struct ConnectionRow: Identifiable {
     }
 }
 
-struct RulesView: View {
-    @Environment(AppState.self) private var state
-    @State private var rules: [RuleItem] = []
-    @State private var search = ""
-
-    var body: some View {
-        let filtered = search.isEmpty ? rules : rules.filter {
-            $0.payload.localizedCaseInsensitiveContains(search) || $0.proxy.localizedCaseInsensitiveContains(search)
-                || $0.type.localizedCaseInsensitiveContains(search)
-        }
-        Table(filtered) {
-            TableColumn("#") { r in Text("\((r.index ?? 0) + 1)").foregroundStyle(.secondary).monospacedDigit() }
-                .width(50)
-            TableColumn("类型") { Text($0.type) }.width(min: 80, ideal: 120)
-            TableColumn("内容") { Text($0.payload).textSelection(.enabled) }.width(min: 200, ideal: 360)
-            TableColumn("策略") { Text($0.proxy) }.width(min: 80, ideal: 160)
-        }
-        .searchable(text: $search, placement: .toolbar, prompt: "搜索规则")
-        .toolbar {
-            ToolbarItem { Text("\(filtered.count) 条").foregroundStyle(.secondary) }
-            ToolbarItem { Button { Task { await load() } } label: { Label("刷新", systemImage: "arrow.clockwise") } }
-        }
-        .task(id: state.coreState) { await load() }
-    }
-
-    private func load() async {
-        rules = (try? await state.api?.rules()) ?? []
-    }
-}
-
 struct ProvidersView: View {
     @Environment(AppState.self) private var state
     @State private var proxyProviders: [ProviderItem] = []

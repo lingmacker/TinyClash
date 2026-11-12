@@ -201,7 +201,7 @@ final class AppState {
         coreState = .starting
         isPrivileged = core.isPrivileged
         do {
-            _ = try await core.start(configPath: profile.fileURL.path)
+            _ = try await core.start(configPath: try effectiveConfigPath(for: profile))
             coreState = .running
             coreVersion = (try? await api?.version()) ?? coreVersion
             await applyRuntimeOverrides()
@@ -430,6 +430,25 @@ final class AppState {
 
     func delay(of name: String) -> Int? { proxies[name]?.lastDelay }
 
+    static let builtinPolicies = ["DIRECT", "REJECT", "REJECT-DROP", "PASS"]
+
+    /// 当前配置中的节点（不含分组与内置策略），按 GLOBAL 中的顺序
+    var nodeNames: [String] {
+        let builtin: Set = ["Direct", "Reject", "RejectDrop", "Pass", "Compatible"]
+        let order = proxies["GLOBAL"]?.all ?? []
+        let isNode = { (n: String) in self.proxies[n].map { !$0.isGroup && !builtin.contains($0.type) } ?? false }
+        let ordered = order.filter(isNode)
+        let rest = proxies.keys.filter { isNode($0) && !ordered.contains($0) }.sorted()
+        return ordered + rest
+    }
+
+    /// 规则可指向的策略：内置策略、分组、节点
+    var policyNames: [String] {
+        Self.builtinPolicies + groupNames.filter { $0 != "GLOBAL" } + nodeNames
+    }
+
+    func isCustomGroup(_ name: String) -> Bool { customGroups.contains { $0.name == name } }
+
     func testGroup(_ group: String) async {
         guard let api, !testingGroups.contains(group) else { return }
         testingGroups.insert(group)
@@ -633,6 +652,7 @@ final class AppState {
         guard let p = profiles.first(where: { $0.id == id }) else { return }
         profiles.removeAll { $0.id == id }
         try? FileManager.default.removeItem(at: p.fileURL)
+        try? FileManager.default.removeItem(at: p.runtimeURL)
         store.save(profiles)
         if selectedProfileID == id {
             selectedProfileID = profiles.first?.id
@@ -643,12 +663,72 @@ final class AppState {
     /// 在外部编辑器修改后，校验并重载当前配置
     func reloadCurrentProfile() async {
         guard let p = selectedProfile else { return }
-        let r = await CoreManager.testConfig(p.fileURL.path)
-        if !r.ok {
-            errorMessage = ProfileError.invalidConfig(r.output).localizedDescription
+        do {
+            let r = await CoreManager.testConfig(try effectiveConfigPath(for: p))
+            if !r.ok { throw ProfileError.invalidConfig(r.output) }
+        } catch {
+            errorMessage = error.localizedDescription
             return
         }
         await restartCore()
+    }
+
+    // MARK: - Custom rules / groups
+
+    /// 没有自定义内容时直接使用原配置；否则生成叠加后的运行时配置
+    private func effectiveConfigPath(for profile: Profile) throws -> String {
+        guard profile.hasCustomization else { return profile.fileURL.path }
+        let yaml = try String(contentsOf: profile.fileURL, encoding: .utf8)
+        try ConfigOverlay.apply(rules: profile.customRules ?? [], groups: profile.customGroups ?? [], to: yaml)
+            .write(to: profile.runtimeURL, atomically: true, encoding: .utf8)
+        return profile.runtimeURL.path
+    }
+
+    /// 校验通过后保存；若是当前配置则重启内核使其生效
+    func setCustomization(rules: [String], groups: [CustomGroup], for id: UUID) async throws {
+        guard var profile = profiles.first(where: { $0.id == id }) else { return }
+        if !rules.isEmpty || !groups.isEmpty {
+            let yaml = try String(contentsOf: profile.fileURL, encoding: .utf8)
+            let tmp = AppPaths.runtime.appendingPathComponent(".validate-\(UUID().uuidString).yaml")
+            try ConfigOverlay.apply(rules: rules, groups: groups, to: yaml).write(to: tmp, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            let r = await CoreManager.testConfig(tmp.path)
+            if !r.ok { throw ProfileError.invalidConfig(Self.errorLines(r.output)) }
+        }
+        profile.customRules = rules
+        profile.customGroups = groups
+        saveProfile(profile)
+        if id == selectedProfileID && isRunning { await restartCore() }
+    }
+
+    var customRules: [String] { selectedProfile?.customRules ?? [] }
+    var customGroups: [CustomGroup] { selectedProfile?.customGroups ?? [] }
+
+    func setCustomRules(_ rules: [String]) async throws {
+        guard let p = selectedProfile else { return }
+        try await setCustomization(rules: rules, groups: customGroups, for: p.id)
+    }
+
+    func addCustomRule(_ rule: String) async throws {
+        try await setCustomRules([rule] + customRules)
+    }
+
+    /// 新增或按 id 替换分组
+    func saveCustomGroup(_ group: CustomGroup) async throws {
+        guard let p = selectedProfile else { return }
+        var groups = customGroups
+        if let i = groups.firstIndex(where: { $0.id == group.id }) { groups[i] = group } else { groups.append(group) }
+        try await setCustomization(rules: customRules, groups: groups, for: p.id)
+    }
+
+    func deleteCustomGroup(_ id: UUID) async throws {
+        guard let p = selectedProfile else { return }
+        try await setCustomization(rules: customRules, groups: customGroups.filter { $0.id != id }, for: p.id)
+    }
+
+    private static func errorLines(_ output: String) -> String {
+        let lines = output.split(separator: "\n").filter { $0.contains("level=error") || $0.contains("level=fatal") }
+        return (lines.isEmpty ? output : lines.joined(separator: "\n")).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Misc

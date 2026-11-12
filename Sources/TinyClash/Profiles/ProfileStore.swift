@@ -38,8 +38,15 @@ struct Profile: Codable, Identifiable, Equatable {
     var updateInterval: Int = 24
     var subscription: SubscriptionInfo?
     var homepage: String?
+    /// 用户在 App 中添加的规则，运行时插入到配置 rules 最前面
+    var customRules: [String]?
+    /// 用户在 App 中添加的分组，运行时追加到配置 proxy-groups 末尾
+    var customGroups: [CustomGroup]?
+
+    var hasCustomization: Bool { !(customRules ?? []).isEmpty || !(customGroups ?? []).isEmpty }
 
     var fileURL: URL { AppPaths.profiles.appendingPathComponent(fileName) }
+    var runtimeURL: URL { AppPaths.runtime.appendingPathComponent(fileName) }
 
     var needsUpdate: Bool {
         kind == .remote && updateInterval > 0 && Date().timeIntervalSince(updatedAt) > Double(updateInterval) * 3600

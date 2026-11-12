@@ -4,6 +4,8 @@ struct ProxiesView: View {
     @Environment(AppState.self) private var state
     @State private var expanded: Set<String> = []
     @State private var search = ""
+    @State private var addingGroup = false
+    @State private var editingGroup: CustomGroup?
 
     var body: some View {
         Group {
@@ -18,7 +20,7 @@ struct ProxiesView: View {
                             GroupSection(group: group, search: search, expanded: Binding(
                                 get: { expanded.contains(group.name) },
                                 set: { if $0 { expanded.insert(group.name) } else { expanded.remove(group.name) } }
-                            ))
+                            ), onEdit: { editingGroup = $0 })
                         }
                     }
                     .padding(18)
@@ -38,9 +40,15 @@ struct ProxiesView: View {
                 .disabled(!state.isRunning)
             }
             ToolbarItem {
+                Button { addingGroup = true } label: { Label("添加分组", systemImage: "plus") }
+                    .disabled(!state.isRunning)
+            }
+            ToolbarItem {
                 Button { Task { await state.refreshProxies() } } label: { Label("刷新", systemImage: "arrow.clockwise") }
             }
         }
+        .sheet(isPresented: $addingGroup) { GroupEditorSheet() }
+        .sheet(item: $editingGroup) { GroupEditorSheet(group: $0) }
     }
 }
 
@@ -49,11 +57,14 @@ private struct GroupSection: View {
     let group: ProxyItem
     let search: String
     @Binding var expanded: Bool
+    var onEdit: (CustomGroup) -> Void
 
     private var members: [String] {
         let all = group.all ?? []
         return search.isEmpty ? all : all.filter { $0.localizedCaseInsensitiveContains(search) }
     }
+
+    private var custom: CustomGroup? { state.customGroups.first { $0.name == group.name } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -66,11 +77,27 @@ private struct GroupSection: View {
                         Text(group.name).font(.headline)
                         Text(group.type).font(.caption).padding(.horizontal, 5).padding(.vertical, 1)
                             .background(.quaternary, in: Capsule())
+                        if custom != nil {
+                            Text("自定义").font(.caption).padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(.tint.opacity(0.2), in: Capsule())
+                        }
                         Text("\(group.all?.count ?? 0)").font(.caption).foregroundStyle(.secondary)
                     }
                     Text(group.now ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
+                if let custom {
+                    Menu {
+                        Button("编辑分组…") { onEdit(custom) }
+                        Button("删除分组", role: .destructive) {
+                            Task {
+                                do { try await state.deleteCustomGroup(custom.id) } catch { state.errorMessage = error.localizedDescription }
+                            }
+                        }
+                    } label: { Image(systemName: "ellipsis.circle") }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                }
                 if state.testingGroups.contains(group.name) {
                     ProgressView().controlSize(.small)
                 } else {
