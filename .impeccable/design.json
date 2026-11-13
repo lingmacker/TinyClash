@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-12T15:37:29Z",
+  "title": "Design System: TinyClash",
+  "extensions": {
+    "colorMeta": {
+      "canvas-light": { "role": "neutral", "displayName": "Cool canvas — light" },
+      "canvas-dark": { "role": "neutral", "displayName": "Cool canvas — dark" },
+      "panel-light": { "role": "neutral", "displayName": "Raised surface — light" },
+      "panel-dark": { "role": "neutral", "displayName": "Raised surface — dark" },
+      "inset-light": { "role": "neutral", "displayName": "Inset fill — light" },
+      "inset-dark": { "role": "neutral", "displayName": "Inset fill — dark" },
+      "chart-label-light": { "role": "neutral", "displayName": "Opaque chart label — light" },
+      "chart-label-dark": { "role": "neutral", "displayName": "Opaque chart label — dark" }
+    },
+    "typographyMeta": {
+      "title": { "displayName": "System title", "purpose": "SwiftUI headline or callout semibold; semantic sizes remain platform-resolved." },
+      "body": { "displayName": "System body", "purpose": "SwiftUI callout for rows, node names, and route content; no custom body font or line metrics." },
+      "label": { "displayName": "System label", "purpose": "Medium caption and caption2 labels; semantic sizes remain platform-resolved." },
+      "speed": { "displayName": "Home speed", "purpose": "Rounded semibold system numerals with monospacedDigit; Home explicitly requests 20 pt." },
+      "metric": { "displayName": "Traffic facts", "purpose": "Rounded medium system numerals with monospacedDigit for connection, memory, total, and port values." },
+      "latency": { "displayName": "Compact live numeral", "purpose": "Rounded medium system numerals with monospacedDigit for default latency, compact routes, and non-Home header speeds." }
+    },
+    "shadows": [
+      { "name": "raised-panel", "value": ".shadow(color: .black.opacity(0.06), radius: 3, y: 1)", "purpose": "Native SwiftUI PanelBackground shadow; browser specimens use a representative CSS equivalent, not an exact renderer conversion." },
+      { "name": "compact-raised-surface", "value": ".shadow(color: .black.opacity(0.05), radius: 2, y: 1)", "purpose": "Native SwiftUI action-tile and PanelSection shadow." }
+    ],
+    "motion": [
+      { "name": "press-feedback", "value": ".easeOut(duration: 0.12)", "purpose": "PressableStyle: scale 0.98 and opacity 0.85 when pressed; Reduce Motion disables scaling and animation, retaining opacity feedback." },
+      { "name": "hover-feedback", "value": ".easeOut(duration: 0.12)", "purpose": "HoverHighlight: primary-color overlay at 0.045 opacity; Reduce Motion disables animation." },
+      { "name": "toggle-fill-change", "value": ".easeOut(duration: 0.18)", "purpose": "ToggleTile on/off animation; disabled when accessibilityReduceMotion is enabled." },
+      { "name": "speed-numeric-transition", "value": ".contentTransition(.numericText())", "purpose": "SpeedReadout numeric text changes; no custom duration is defined." },
+      { "name": "chart-history-count", "value": ".animation(nil, value: points.count)", "purpose": "TrafficChart explicitly disables animation triggered by history-count changes." }
+    ],
+    "breakpoints": []
+  },
+  "components": [
+    {
+      "name": "Toggle tile — on (representative native equivalent)",
+      "kind": "button",
+      "refersTo": "toggle-tile",
+      "description": "Representative rendered equivalent of ToggleTile, not shipping SwiftUI source. CSS AccentColor approximates the native accent; shipping Theme.controlFill additionally constrains sRGB luminance to 0.18 for white-text contrast, which this static specimen does not reproduce. CanvasText and inline SVG stand in for native text and SF Symbols. Browser pixels approximate native points; focus behavior is illustrative. The on/off transition is not simulated.",
+      "html": "<button class=\"ds-toggle-on\" type=\"button\" aria-pressed=\"true\"><span class=\"ds-toggle-on-icon\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"6\"/><path d=\"M2 8h12M8 2c-3 3-3 9 0 12 3-3 3-9 0-12Z\"/></svg></span><span class=\"ds-toggle-on-copy\"><strong>系统代理</strong><span>已开启</span></span></button>",
+      "css": ".ds-toggle-on{display:flex;align-items:center;gap:10px;width:100%;border:0;border-radius:10px;padding:10px 12px;background:AccentColor;color:white;font-family:-apple-system,BlinkMacSystemFont,sans-serif;text-align:left;transition:transform .12s ease-out,opacity .12s ease-out}.ds-toggle-on-icon{display:grid;place-items:center;width:32px;height:32px;flex-shrink:0;border-radius:50%;background:rgb(100% 100% 100% / 22%)}.ds-toggle-on-copy{display:flex;flex-direction:column;gap:1px}.ds-toggle-on-copy strong{font-size:13px;font-weight:600}.ds-toggle-on-copy>span{font-size:11px}.ds-toggle-on:hover{cursor:pointer}.ds-toggle-on:focus-visible{outline:auto;outline-offset:2px}.ds-toggle-on:active{transform:scale(.98);opacity:.85}.ds-toggle-on:disabled{opacity:.5;cursor:default}@media(prefers-reduced-motion:reduce){.ds-toggle-on{transition:none}.ds-toggle-on:active{transform:none}}"
+    },
+    {
+      "name": "Toggle tile — off (representative native equivalent)",
+      "kind": "button",
+      "refersTo": "toggle-tile",
+      "description": "Representative rendered equivalent of inactive ToggleTile. Neutral fills are extracted; browser semantic text, font metrics, focus, and SVG are platform approximations, not new source tokens. Not shipping HTML.",
+      "html": "<button class=\"ds-toggle-off\" type=\"button\" aria-pressed=\"false\"><span class=\"ds-toggle-off-icon\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" aria-hidden=\"true\"><path d=\"M8 1 14 4v4c0 3-3 5-6 7-3-2-6-4-6-7V4Z\"/></svg></span><span class=\"ds-toggle-off-copy\"><strong>TUN</strong><span>已关闭</span></span></button>",
+      "css": ".ds-toggle-off{display:flex;align-items:center;gap:10px;width:100%;border:0;border-radius:10px;padding:10px 12px;background:rgb(0% 0% 0% / 4%);color:CanvasText;font-family:-apple-system,BlinkMacSystemFont,sans-serif;text-align:left;transition:transform .12s ease-out,opacity .12s ease-out}.ds-toggle-off-icon{display:grid;place-items:center;width:32px;height:32px;flex-shrink:0;border-radius:50%;background:rgb(0% 0% 0% / 4%)}.ds-toggle-off-copy{display:flex;flex-direction:column;gap:1px}.ds-toggle-off-copy strong{font-size:13px;font-weight:600}.ds-toggle-off-copy>span{font-size:11px;color:GrayText}.ds-toggle-off:hover{cursor:pointer}.ds-toggle-off:focus-visible{outline:auto;outline-offset:2px}.ds-toggle-off:active{transform:scale(.98);opacity:.85}.ds-toggle-off:disabled{opacity:.5;cursor:default}@media(prefers-color-scheme:dark){.ds-toggle-off,.ds-toggle-off-icon{background:rgb(100% 100% 100% / 6%)}}@media(prefers-reduced-motion:reduce){.ds-toggle-off{transition:none}.ds-toggle-off:active{transform:none}}"
+    },
+    {
+      "name": "Action tile (representative native equivalent)",
+      "kind": "button",
+      "refersTo": "action-tile",
+      "description": "Representative rendered equivalent of a Home action tile. Browser shadow, SF Symbol substitute, semantic text, and focus are approximations; the specimen has no network action and is not shipping source.",
+      "html": "<button class=\"ds-action\" type=\"button\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.3\" aria-hidden=\"true\"><rect x=\"1.5\" y=\"2.5\" width=\"13\" height=\"11\" rx=\"1.5\"/><path d=\"m4 6 2 2-2 2m4 0h3\"/></svg><span>复制代理命令</span></button>",
+      "css": ".ds-action{position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;width:100%;padding:9px 0;border:0;border-radius:10px;background:rgb(100% 100% 100%);color:CanvasText;box-shadow:0 1px 2px rgb(0% 0% 0% / 5%);font:10px -apple-system,BlinkMacSystemFont,sans-serif;transition:transform .12s ease-out,opacity .12s ease-out}.ds-action::after{content:'';position:absolute;inset:0;border-radius:10px;background:currentColor;opacity:0;pointer-events:none;transition:opacity .12s ease-out}.ds-action:hover::after{opacity:.045}.ds-action:focus-visible{outline:auto;outline-offset:2px}.ds-action:active{transform:scale(.98);opacity:.85}.ds-action:disabled{opacity:.45}@media(prefers-color-scheme:dark){.ds-action{background:rgb(16.5% 16.8% 18%)}}@media(prefers-reduced-motion:reduce){.ds-action,.ds-action::after{transition:none}.ds-action:active{transform:none}}"
+    },
+    {
+      "name": "Tab navigation (representative native equivalent)",
+      "kind": "nav",
+      "refersTo": "tab",
+      "description": "Representative rendered equivalent of the five panel tabs; selected state is static. Inline SVGs approximate SF Symbols. Browser semantic colors, focus, and caption metrics do not define shipping tokens. Native source additionally supplies Command–1 through Command–5.",
+      "html": "<nav class=\"ds-tabs\" aria-label=\"面板导航\"><button class=\"ds-tab\" type=\"button\" aria-current=\"page\"><svg width=\"13\" height=\"13\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.3\" aria-hidden=\"true\"><path d=\"M2 13a7 7 0 1 1 12 0M8 9l3-4\"/></svg><span>首页</span></button><button class=\"ds-tab\" type=\"button\"><svg width=\"13\" height=\"13\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.3\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"6\"/><path d=\"M2 8h12M8 2c-3 3-3 9 0 12 3-3 3-9 0-12Z\"/></svg><span>代理</span></button><button class=\"ds-tab\" type=\"button\"><svg width=\"13\" height=\"13\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.3\" aria-hidden=\"true\"><path d=\"M4 1h6l3 3v11H4ZM10 1v4h3M6 8h5M6 11h5\"/></svg><span>配置</span></button><button class=\"ds-tab\" type=\"button\"><svg width=\"13\" height=\"13\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.3\" aria-hidden=\"true\"><rect x=\"1\" y=\"2\" width=\"14\" height=\"12\" rx=\"2\"/><path d=\"M4 5h1m2 0h5M4 8h1m2 0h5M4 11h1m2 0h5\"/></svg><span>规则</span></button><button class=\"ds-tab\" type=\"button\"><svg width=\"13\" height=\"13\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.3\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"3\"/><path d=\"M8 1v3m0 8v3M1 8h3m8 0h3M3 3l2 2m6 6 2 2M3 13l2-2m6-6 2-2\"/></svg><span>设置</span></button></nav>",
+      "css": ".ds-tabs{display:flex;gap:4px}.ds-tab{display:flex;flex:1;flex-direction:column;align-items:center;gap:3px;min-width:0;padding:6px 0;border:0;border-radius:10px;background:transparent;color:GrayText;font:500 10px -apple-system,BlinkMacSystemFont,sans-serif;transition:transform .12s ease-out,opacity .12s ease-out}.ds-tab[aria-current=page]{color:AccentColor;background:color-mix(in srgb,AccentColor 12%,transparent)}.ds-tab:hover{cursor:pointer}.ds-tab:focus-visible{outline:auto;outline-offset:2px}.ds-tab:active{transform:scale(.98);opacity:.85}@media(prefers-reduced-motion:reduce){.ds-tab{transition:none}.ds-tab:active{transform:none}}"
+    },
+    {
+      "name": "Node search field (representative native equivalent)",
+      "kind": "input",
+      "description": "Representative rendered equivalent of the native rounded-border TextField shown for groups with more than ten members. This deliberately uses a browser-native field: its border, radius, focus, and metrics are not extracted custom SwiftUI tokens. No custom error or focus system is implied.",
+      "html": "<input class=\"ds-search\" type=\"search\" aria-label=\"搜索节点\" placeholder=\"搜索节点\">",
+      "css": ".ds-search{font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:100%;color:CanvasText;background:Field}.ds-search:hover{cursor:text}.ds-search:focus-visible{outline:auto}"
+    },
+    {
+      "name": "Type tag (representative native equivalent)",
+      "kind": "chip",
+      "refersTo": "tag",
+      "description": "Representative rendered equivalent of the passive Tag component. GrayText approximates SwiftUI secondary text; browser font metrics approximate caption2. The capsule and 12% tint are source-based. Not an interactive chip or shipping HTML.",
+      "html": "<span class=\"ds-tag\">手动</span>",
+      "css": ".ds-tag{display:inline-block;padding:2px 6px;border-radius:999px;background:color-mix(in srgb,GrayText 12%,transparent);color:GrayText;font:500 10px -apple-system,BlinkMacSystemFont,sans-serif}"
+    },
+    {
+      "name": "Raised panel (representative native equivalent)",
+      "kind": "card",
+      "refersTo": "compact-panel",
+      "description": "Representative rendered equivalent of PanelBackground with compact padding, as used by proxy group and traffic cards. This static specimen is not a complete group card; browser shadow, font metrics, and secondary text are approximations. No new shadow or type tokens are established.",
+      "html": "<section class=\"ds-panel\"><strong>策略组</strong><span>当前节点</span></section>",
+      "css": ".ds-panel{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:14px;background:rgb(100% 100% 100%);color:CanvasText;box-shadow:0 1px 3px rgb(0% 0% 0% / 6%);font:13px -apple-system,BlinkMacSystemFont,sans-serif}.ds-panel strong{font-weight:600}.ds-panel>span{font-size:11px;color:GrayText}@media(prefers-color-scheme:dark){.ds-panel{background:rgb(16.5% 16.8% 18%)}}"
+    },
+    {
+      "name": "Compact route ribbon (representative native equivalent)",
+      "kind": "custom",
+      "refersTo": "route-segment-compact",
+      "description": "Representative rendered equivalent of compact RouteRibbon segments, using neutral specimen labels instead of claiming an actual network route. The compact variant omits the mode chip because the segmented picker already shows mode. The terminal node retains 13 pt semibold emphasis and native layout priority 1; its accent treatment is source-based. Browser colors, typography, and SVG chevron are approximations, and native layout priority is not reproduced. Static and noninteractive; not shipping source.",
+      "html": "<div class=\"ds-route\" aria-label=\"路由样式示例\"><span class=\"ds-route-segment\">分组</span><svg width=\"8\" height=\"8\" viewBox=\"0 0 8 8\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" aria-hidden=\"true\"><path d=\"m3 1 3 3-3 3\"/></svg><span class=\"ds-route-segment ds-route-terminal\">节点</span></div>",
+      "css": ".ds-route{display:flex;align-items:center;gap:5px;color:GrayText;font:11px -apple-system,BlinkMacSystemFont,sans-serif}.ds-route-segment{padding:3px 6px;border-radius:6px;background:rgb(0% 0% 0% / 4%);white-space:nowrap}.ds-route-terminal{background:color-mix(in srgb,AccentColor 14%,transparent);color:CanvasText;font-size:13px;font-weight:600}@media(prefers-color-scheme:dark){.ds-route-segment:not(.ds-route-terminal){background:rgb(100% 100% 100% / 6%)}}"
+    },
+    {
+      "name": "Selected node row (representative native equivalent)",
+      "kind": "custom",
+      "refersTo": "node-row",
+      "description": "Representative rendered equivalent of NodeRow's selected appearance. Static informational specimen, not a claim to reproduce SwiftUI gesture or accessibility behavior. Browser semantic colors, fonts, and SVG replace native styles for display only. The shipping row includes a separate test action, not represented here.",
+      "html": "<div class=\"ds-node\"><svg width=\"13\" height=\"13\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"7\" fill=\"currentColor\"/><path d=\"m4.5 8 2.3 2.3 4.7-4.7\" fill=\"none\" stroke=\"white\" stroke-width=\"1.5\"/></svg><span class=\"ds-node-copy\"><strong>节点</strong><span>节点详情</span></span></div>",
+      "css": ".ds-node{display:flex;align-items:center;gap:10px;height:42px;padding:0 10px;border-radius:10px;background:color-mix(in srgb,AccentColor 12%,transparent);color:CanvasText;font:13px -apple-system,BlinkMacSystemFont,sans-serif}.ds-node>svg{color:AccentColor;flex-shrink:0}.ds-node-copy{display:flex;flex-direction:column;gap:1px;min-width:0}.ds-node-copy strong{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds-node-copy>span{color:GrayText;font-size:10px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Stash-inspired native macOS restraint",
+    "overview": "TinyClash uses the confirmed Stash for Mac reference through native macOS controls, a softly tinted canvas, raised rounded panels, and a system accent that identifies selection and enabled proxy controls. This is an operational interface: readable state and familiar behavior take precedence over decoration. Its shipping surface is a native SwiftUI menu-bar panel, not a web application or a reduced desktop window.\n\nThe system follows macOS light and dark appearance. Standard system text and SF Symbols carry the interface; rounded, monospaced digits distinguish live network values. Simplified Chinese labels stay compact, with secondary text used for profile names, node details, and supporting information.\n\nThis document records the implementation in `Sources/TinyClash/Views/Theme.swift`, `Components.swift`, `Panel/MenuPanel.swift`, `Panel/HomeTab.swift`, and `Panel/ProxiesTab.swift`. Values are source-extracted, not a claim of rendered validation. `PRODUCT.md` and the existing menu-panel surface brief supply the confirmed direction, not additional tokens. The frontmatter uses native points and records literal source colors as CSS sRGB percentages without rounding. Native semantic colors and semantic font sizes remain system-resolved; no fixed substitutes are prescribed. The sidecar's HTML/CSS specimens are representative rendered equivalents only, not shipping source.",
+    "keyCharacteristics": [
+      "Adaptive cool-neutral canvas and raised panels.",
+      "System accent for selection and enabled controls; semantic color for network state.",
+      "Native system typography, SF Symbols, and rounded tabular numerals.",
+      "Compact spacing, continuous rounded corners, and restrained interaction feedback."
+    ],
+    "rules": [
+      { "name": "The Semantic Latency Rule", "body": "Preserve the implemented thresholds: nil is untested, zero is timeout, positive values below 500 ms are green, 500–999 ms are orange, and 1000 ms or more are red. Pair color with a readable value, “超时”, or an explicit placeholder; the decorative health strip is not the sole reading.", "section": "colors" },
+      { "name": "The Stable Numerals Rule", "body": "Use `Theme.numeral` for live speed, traffic, and latency readouts so rounded forms and monospaced digits remain consistent; keep surrounding labels in the default system design.", "section": "typography" },
+      { "name": "The Raised Panel Rule", "body": "Reuse the existing tonal surface and restrained shadow for raised cards; do not add decorative outlines to `PanelBackground`. Retain native dividers and field borders where the component already uses them.", "section": "elevation" }
+    ],
+    "dos": [
+      "**Do** follow macOS appearance, native controls, SF Symbols, and system text hierarchy.",
+      "**Do** reuse the established panel, tile, chip, and spacing values rather than introducing parallel scales.",
+      "**Do** preserve visible text and state indicators alongside semantic network colors.",
+      "**Do** distinguish untested latency, timeout, a stopped core, and a running core without traffic takeover.",
+      "**Do** keep browser specimens explicitly labeled as representative native-component equivalents, not SwiftUI implementation code."
+    ],
+    "donts": [
+      "**Don't** replace adaptive system accent or semantic network colors with an invented fixed brand palette.",
+      "**Don't** turn the menu-bar interface into a main-window layout or add unsupported responsive breakpoints.",
+      "**Don't** add decorative borders to the existing raised-card treatment or remove native dividers on that pretext.",
+      "**Don't** bypass the existing Reduce Motion checks on toggle, press, or hover feedback.",
+      "**Don't** treat synthesized tonal ramps, browser focus styling, or browser component metrics as extracted shipping tokens."
+    ]
+  }
+}

@@ -46,13 +46,25 @@ struct ProxyItem: Decodable, Identifiable {
     var hidden: Bool?
     var udp: Bool?
     var history: [DelayHistory]?
+    /// 用非默认测速地址测得的结果按地址分别存放：extra[url].history
+    var extra: [String: ExtraInfo]?
     var testUrl: String?
 
-    struct DelayHistory: Decodable { var delay: Int }
+    struct DelayHistory: Decodable {
+        var delay: Int
+        var time: String?
+    }
+
+    struct ExtraInfo: Decodable { var history: [DelayHistory]? }
 
     var isGroup: Bool { all != nil }
     var isSelectable: Bool { type == "Selector" }
-    var lastDelay: Int? { history?.last?.delay }
+
+    /// 最近一次测速结果（默认地址与各自定义地址中取时间最新的一条）
+    var lastDelay: Int? {
+        let candidates = ([history?.last] + (extra ?? [:]).values.map { $0.history?.last }).compactMap { $0 }
+        return candidates.max { ($0.time ?? "") < ($1.time ?? "") }?.delay
+    }
 }
 
 struct ProxiesResponse: Decodable { var proxies: [String: ProxyItem] }

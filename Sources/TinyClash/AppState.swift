@@ -22,13 +22,6 @@ struct TrafficPoint: Identifiable {
     var down: Int64
 }
 
-struct LogEntry: Identifiable {
-    var id: Int
-    var time: Date
-    var level: String
-    var text: String
-}
-
 enum ProxyMode: String, CaseIterable, Identifiable {
     case rule, global, direct
     var id: String { rawValue }
@@ -62,7 +55,6 @@ final class AppState {
     var downloadTotal: Int64 = 0
     var memory: Int64 = 0
     var connections: [Connection] = []
-    var logs: [LogEntry] = []
 
     var proxies: [String: ProxyItem] = [:]
     var groupNames: [String] = []
@@ -71,6 +63,9 @@ final class AppState {
 
     var profiles: [Profile] = []
     var updatingProfiles: Set<UUID> = []
+    private var editingProfiles: Set<UUID> = []
+    private(set) var profileRevision = 0
+    var isEditingSelectedProfile: Bool { selectedProfileID.map { editingProfiles.contains($0) } ?? false }
 
     // MARK: Persisted settings
 
@@ -95,18 +90,13 @@ final class AppState {
     var showSpeedInMenuBar: Bool { didSet { defaults.set(showSpeedInMenuBar, forKey: "showSpeed") } }
     var closeConnectionsOnSwitch: Bool { didSet { defaults.set(closeConnectionsOnSwitch, forKey: "closeConnOnSwitch") } }
     var subscriptionViaProxy: Bool { didSet { defaults.set(subscriptionViaProxy, forKey: "subViaProxy") } }
-    var logLevel: String {
-        didSet { defaults.set(logLevel, forKey: "logLevel"); restartLogStream() }
-    }
 
     // MARK: Internals
 
     let core = CoreManager()
     private let store = ProfileStore()
     private var streams: [StreamClient] = []
-    private var logStream: StreamClient?
     private var trafficCounter = 0
-    private var logCounter = 0
     private var autoUpdateTimer: Timer?
     private var proxyRefreshTask: Task<Void, Never>?
 
@@ -135,7 +125,6 @@ final class AppState {
         showSpeedInMenuBar = d.object(forKey: "showSpeed") as? Bool ?? true
         closeConnectionsOnSwitch = d.object(forKey: "closeConnOnSwitch") as? Bool ?? true
         subscriptionViaProxy = d.bool(forKey: "subViaProxy")
-        logLevel = d.string(forKey: "logLevel") ?? "info"
 
         core.onUnexpectedExit = { [weak self] status, tail in
             Task { @MainActor in await self?.handleCoreCrash(status: status, log: tail) }
@@ -399,7 +388,11 @@ final class AppState {
     // MARK: - Proxies
 
     func refreshProxies() async {
-        guard let api, let all = try? await api.proxies() else { return }
+        guard let api, var all = try? await api.proxies() else { return }
+        // proxy-providers 中的节点不会出现在 /proxies，需要从 /providers/proxies 合并
+        for provider in (try? await api.proxyProviders()) ?? [] {
+            for node in provider.proxies ?? [] where all[node.name] == nil { all[node.name] = node }
+        }
         proxies = all
         let order = all["GLOBAL"]?.all ?? []
         var names = order.filter { all[$0]?.isGroup == true && all[$0]?.hidden != true }
@@ -447,7 +440,29 @@ final class AppState {
         Self.builtinPolicies + groupNames.filter { $0 != "GLOBAL" } + nodeNames
     }
 
-    func isCustomGroup(_ name: String) -> Bool { customGroups.contains { $0.name == name } }
+    /// 主策略组：全局模式为 GLOBAL，规则模式为配置中的第一个分组
+    var primaryGroup: ProxyItem? {
+        switch currentMode {
+        case .direct: return nil
+        case .global: return proxies["GLOBAL"]
+        case .rule: return visibleGroups.first
+        }
+    }
+
+    /// 从主策略组沿 now 一路解析到最终节点，例如 [Auto, 香港, 香港 ISP 6]
+    var routeChain: [String] {
+        guard var item = primaryGroup else { return [] }
+        var chain = [item.name]
+        while let next = item.now, !chain.contains(next), chain.count < 6 {
+            chain.append(next)
+            guard let n = proxies[next], n.isGroup else { break }
+            item = n
+        }
+        return chain
+    }
+
+    /// 是否真的在接管流量（内核运行且开启了系统代理或 TUN）
+    var isProxying: Bool { isRunning && (systemProxyEnabled || tunEnabled) }
 
     func testGroup(_ group: String) async {
         guard let api, !testingGroups.contains(group) else { return }
@@ -492,7 +507,6 @@ final class AppState {
         }
         streams = [traffic, memory, conns]
         streams.forEach { $0.start() }
-        restartLogStream()
 
         // 定期刷新节点（延迟历史、provider 更新后的节点）
         proxyRefreshTask = Task { [weak self] in
@@ -503,23 +517,9 @@ final class AppState {
         }
     }
 
-    private func restartLogStream() {
-        logStream?.stop()
-        logStream = nil
-        guard let api else { return }
-        let s = StreamClient(url: api.webSocketURL("/logs", query: "level=\(logLevel)"), session: api.session) { data in
-            guard let m = try? JSONDecoder().decode(LogMessage.self, from: data) else { return }
-            Task { @MainActor in AppState.shared.pushLog(m) }
-        }
-        logStream = s
-        s.start()
-    }
-
     private func stopStreams() {
         streams.forEach { $0.stop() }
         streams = []
-        logStream?.stop()
-        logStream = nil
         proxyRefreshTask?.cancel()
         proxyRefreshTask = nil
     }
@@ -531,14 +531,6 @@ final class AppState {
         trafficHistory.append(TrafficPoint(id: trafficCounter, up: s.up, down: s.down))
         if trafficHistory.count > 60 { trafficHistory.removeFirst(trafficHistory.count - 60) }
     }
-
-    private func pushLog(_ m: LogMessage) {
-        logCounter += 1
-        logs.append(LogEntry(id: logCounter, time: Date(), level: m.type, text: m.payload))
-        if logs.count > 2000 { logs.removeFirst(logs.count - 2000) }
-    }
-
-    func clearLogs() { logs.removeAll() }
 
     // MARK: - Profiles
 
@@ -617,20 +609,24 @@ final class AppState {
     }
 
     func updateProfile(_ id: UUID) async {
-        guard let idx = profiles.firstIndex(where: { $0.id == id }), let url = profiles[idx].url,
-              !updatingProfiles.contains(id) else { return }
+        guard let profile = profiles.first(where: { $0.id == id }), let url = profile.url,
+              !updatingProfiles.contains(id), !editingProfiles.contains(id) else { return }
         updatingProfiles.insert(id)
         defer { updatingProfiles.remove(id) }
         do {
             let dl = try await store.download(url, viaProxyPort: proxyPortForDownload)
-            try await store.writeValidated(dl.data, to: profiles[idx].fileURL)
+            guard profiles.first(where: { $0.id == id }) == profile else { throw ProfileError.profileChanged }
+            try await store.writeValidated(dl.data, to: profile.fileURL) {
+                guard self.profiles.first(where: { $0.id == id }) == profile else { throw ProfileError.profileChanged }
+            }
             guard let i = profiles.firstIndex(where: { $0.id == id }) else { return }
             profiles[i].updatedAt = Date()
             if let sub = dl.subscription { profiles[i].subscription = sub }
             store.save(profiles)
+            profileRevision &+= 1
             if id == selectedProfileID && isRunning { await restartCore() }
         } catch {
-            errorMessage = "更新「\(profiles[idx].name)」失败：\(error.localizedDescription)"
+            errorMessage = "更新「\(profile.name)」失败：\(error.localizedDescription)"
         }
     }
 
@@ -670,12 +666,14 @@ final class AppState {
             errorMessage = error.localizedDescription
             return
         }
+        profileRevision &+= 1
         await restartCore()
     }
 
-    // MARK: - Custom rules / groups
+    // MARK: - Official YAML additions / legacy compatibility
 
-    /// 没有自定义内容时直接使用原配置；否则生成叠加后的运行时配置
+    /// Only pre-existing profiles.json overlays use runtime YAML. No bootstrap
+    /// migration is performed; a successful explicit addition migrates that profile.
     private func effectiveConfigPath(for profile: Profile) throws -> String {
         guard profile.hasCustomization else { return profile.fileURL.path }
         let yaml = try String(contentsOf: profile.fileURL, encoding: .utf8)
@@ -684,51 +682,79 @@ final class AppState {
         return profile.runtimeURL.path
     }
 
-    /// 校验通过后保存；若是当前配置则重启内核使其生效
-    func setCustomization(rules: [String], groups: [CustomGroup], for id: UUID) async throws {
-        guard var profile = profiles.first(where: { $0.id == id }) else { return }
-        if !rules.isEmpty || !groups.isEmpty {
-            let yaml = try String(contentsOf: profile.fileURL, encoding: .utf8)
-            let tmp = AppPaths.runtime.appendingPathComponent(".validate-\(UUID().uuidString).yaml")
-            try ConfigOverlay.apply(rules: rules, groups: groups, to: yaml).write(to: tmp, atomically: true, encoding: .utf8)
-            defer { try? FileManager.default.removeItem(at: tmp) }
-            let r = await CoreManager.testConfig(tmp.path)
-            if !r.ok { throw ProfileError.invalidConfig(Self.errorLines(r.output)) }
+    /// Add or delete directly on the selected official YAML, never via an overlay.
+    func addRule(_ rule: String) async throws {
+        try await applyProfileEdit(.addRule(rule))
+    }
+
+    func addGroup(_ group: CustomGroup) async throws {
+        try await applyProfileEdit(.addGroup(group))
+    }
+
+    func ruleTarget(_ rule: RuleItem, at fallbackIndex: Int?) -> ConfigOverlay.RuleTarget {
+        ConfigOverlay.RuleTarget(index: rule.index ?? fallbackIndex, type: rule.type,
+                                 payload: rule.payload, proxy: rule.proxy)
+    }
+
+    func ruleText(_ target: ConfigOverlay.RuleTarget) -> String? {
+        selectedProfile.flatMap { store.ruleText(target, in: $0) }
+    }
+
+    func updateRule(_ target: ConfigOverlay.RuleTarget, to rule: String) async throws {
+        try await applyProfileEdit(.updateRule(target, rule))
+    }
+
+    @discardableResult
+    func deleteRule(_ rule: RuleItem, at fallbackIndex: Int?) async -> Bool {
+        await deleteRule(ruleTarget(rule, at: fallbackIndex))
+    }
+
+    @discardableResult
+    func deleteRule(_ target: ConfigOverlay.RuleTarget) async -> Bool {
+        errorMessage = nil
+        do {
+            try await applyProfileEdit(.deleteRule(target))
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
         }
-        profile.customRules = rules
-        profile.customGroups = groups
-        saveProfile(profile)
-        if id == selectedProfileID && isRunning { await restartCore() }
     }
 
-    var customRules: [String] { selectedProfile?.customRules ?? [] }
-    var customGroups: [CustomGroup] { selectedProfile?.customGroups ?? [] }
-
-    func setCustomRules(_ rules: [String]) async throws {
-        guard let p = selectedProfile else { return }
-        try await setCustomization(rules: rules, groups: customGroups, for: p.id)
+    func groupDefinition(named name: String) -> CustomGroup? {
+        selectedProfile.flatMap { store.group(named: name, in: $0) }
     }
 
-    func addCustomRule(_ rule: String) async throws {
-        try await setCustomRules([rule] + customRules)
+    func updateGroup(named name: String, to group: CustomGroup) async throws {
+        try await applyProfileEdit(.updateGroup(name, group))
     }
 
-    /// 新增或按 id 替换分组
-    func saveCustomGroup(_ group: CustomGroup) async throws {
-        guard let p = selectedProfile else { return }
-        var groups = customGroups
-        if let i = groups.firstIndex(where: { $0.id == group.id }) { groups[i] = group } else { groups.append(group) }
-        try await setCustomization(rules: customRules, groups: groups, for: p.id)
+    @discardableResult
+    func deleteGroup(named name: String) async -> Bool {
+        errorMessage = nil
+        do {
+            try await applyProfileEdit(.deleteGroup(name))
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
     }
 
-    func deleteCustomGroup(_ id: UUID) async throws {
-        guard let p = selectedProfile else { return }
-        try await setCustomization(rules: customRules, groups: customGroups.filter { $0.id != id }, for: p.id)
-    }
-
-    private static func errorLines(_ output: String) -> String {
-        let lines = output.split(separator: "\n").filter { $0.contains("level=error") || $0.contains("level=fatal") }
-        return (lines.isEmpty ? output : lines.joined(separator: "\n")).trimmingCharacters(in: .whitespacesAndNewlines)
+    private func applyProfileEdit(_ edit: ProfileStore.ProfileEdit) async throws {
+        guard let profile = selectedProfile else { throw ProfileError.missingProfile }
+        guard !updatingProfiles.contains(profile.id), !editingProfiles.contains(profile.id) else {
+            throw ProfileError.profileBusy
+        }
+        editingProfiles.insert(profile.id)
+        defer { editingProfiles.remove(profile.id) }
+        let wasRunning = isRunning
+        let validated = try await store.prepareEdit(edit, to: profile)
+        profiles = try store.commit(validated, profiles: profiles)
+        profileRevision &+= 1
+        // A stopped core stays stopped. Switching selection during validation must
+        // not restart a different profile, nor resurrect a core the user stopped.
+        if wasRunning && isRunning && profile.id == selectedProfileID { await restartCore() }
     }
 
     // MARK: - Misc
@@ -747,6 +773,42 @@ final class AppState {
         busy = true
         defer { busy = false }
         do { try await api.updateGeo() } catch { errorMessage = "更新 Geo 数据库失败：\(error.localizedDescription)" }
+    }
+
+    /// 更新所有代理集合与规则集合
+    func updateAllProviders() async {
+        guard let api else { return }
+        busy = true
+        defer { busy = false }
+        var failed: [String] = []
+        for p in (try? await api.proxyProviders()) ?? [] {
+            do { try await api.updateProxyProvider(p.name) } catch { failed.append(p.name) }
+        }
+        for p in (try? await api.ruleProviders()) ?? [] {
+            do { try await api.updateRuleProvider(p.name) } catch { failed.append(p.name) }
+        }
+        await refreshProxies()
+        if !failed.isEmpty { errorMessage = "以下资源更新失败：\(failed.joined(separator: "、"))" }
+    }
+
+    /// 菜单栏面板没有宿主窗口，直接用 NSOpenPanel 选择文件
+    func chooseFile(message: String) -> URL? {
+        NSApp.activate(ignoringOtherApps: true)
+        let panel = NSOpenPanel()
+        panel.message = message
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+
+    func importProfileFromFile() async {
+        guard let url = chooseFile(message: "选择 mihomo 配置文件（YAML）") else { return }
+        do { try await importLocalProfile(from: url) } catch { errorMessage = error.localizedDescription }
+    }
+
+    func installCoreFromFile() async {
+        guard let url = chooseFile(message: "选择 mihomo 内核可执行文件") else { return }
+        await installCore(from: url)
     }
 
     func installCore(from url: URL) async {

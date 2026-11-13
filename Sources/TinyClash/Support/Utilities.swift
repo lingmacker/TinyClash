@@ -10,7 +10,7 @@ enum AppPaths {
     static let home = base.appendingPathComponent("mihomo", isDirectory: true)
     static let profiles = base.appendingPathComponent("profiles", isDirectory: true)
     static let profilesIndex = base.appendingPathComponent("profiles.json")
-    /// 叠加自定义规则后实际交给内核的配置
+    /// Compatibility-only runtime YAML for legacy profiles.json overlays.
     static let runtime = base.appendingPathComponent("runtime", isDirectory: true)
     static let coreDir = base.appendingPathComponent("core", isDirectory: true)
     static let coreBinary = coreDir.appendingPathComponent("mihomo")

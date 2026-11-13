@@ -165,8 +165,9 @@ final class CoreManager: @unchecked Sendable {
         return text.split(separator: "\n").suffix(lines).joined(separator: "\n")
     }
 
-    /// 测试配置文件是否可被内核解析；首次解析可能需要下载 Geo 数据库，超时视为通过
-    static func testConfig(_ path: String, timeout: TimeInterval = 30) async -> ShellResult {
+    /// Validate with mihomo -t. Legacy import checks tolerate Geo download failures;
+    /// strict checks never accept a timeout, signal, or nonzero exit.
+    static func testConfig(_ path: String, timeout: TimeInterval = 30, strict: Bool = false) async -> ShellResult {
         await Task.detached {
             let p = Process()
             p.executableURL = AppPaths.coreBinary
@@ -175,15 +176,24 @@ final class CoreManager: @unchecked Sendable {
             p.standardOutput = pipe
             p.standardError = pipe
             do { try p.run() } catch { return ShellResult(status: -1, output: error.localizedDescription) }
+            let deadline = ProcessInfo.processInfo.systemUptime + timeout
             let timer = DispatchWorkItem { if p.isRunning { p.terminate() } }
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timer)
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             p.waitUntilExit()
             timer.cancel()
             let output = String(decoding: data, as: UTF8.self)
-            if p.terminationReason == .uncaughtSignal { return ShellResult(status: 0, output: output) }
-            // Geo 数据库下载失败属于网络问题而非配置错误，内核启动后会重试
-            if p.terminationStatus != 0 && isGeoDownloadFailure(output) { return ShellResult(status: 0, output: output) }
+            // Even a child that handles SIGTERM and exits zero must not turn a
+            // validation timeout into an accepted official-file replacement.
+            if strict && ProcessInfo.processInfo.systemUptime >= deadline {
+                return ShellResult(status: -1, output: "配置校验超时\n" + output)
+            }
+            if p.terminationReason == .uncaughtSignal {
+                return ShellResult(status: strict ? -1 : 0, output: "配置校验超时或被终止\n" + output)
+            }
+            // Imports retain the historical Geo-download exception. Official YAML edits
+            // must receive a successful exit from mihomo before replacing the file.
+            if !strict && p.terminationStatus != 0 && isGeoDownloadFailure(output) { return ShellResult(status: 0, output: output) }
             return ShellResult(status: p.terminationStatus, output: output)
         }.value
     }

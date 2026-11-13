@@ -16,10 +16,18 @@ case "$ARCH" in
   *) echo "不支持的架构: $ARCH"; exit 1 ;;
 esac
 
-echo "==> 编译 Swift (release)"
 cd "$ROOT"
-swift build -c release
-BIN="$(swift build -c release --show-bin-path)/TinyClash"
+PREVIEW_BUILD="${TINYCLASH_PREVIEW:-0}"
+if [[ "$PREVIEW_BUILD" == "1" ]]; then
+  echo "==> 编译 Swift (preview)"
+  swift build -c debug -Xswiftc -D -Xswiftc TINYCLASH_PREVIEW
+  BIN="$(swift build -c debug --show-bin-path -Xswiftc -D -Xswiftc TINYCLASH_PREVIEW)/TinyClash"
+else
+  echo "==> 编译 Swift (release)"
+  swift build -c release
+  BIN="$(swift build -c release --show-bin-path)/TinyClash"
+fi
+
 
 echo "==> 准备 mihomo 内核"
 mkdir -p "$CACHE"
@@ -28,7 +36,12 @@ if [[ -n "${MIHOMO_BIN:-}" ]]; then
 else
   if [[ -z "${MIHOMO_VERSION:-}" ]]; then
     # API 容易被限流，改用 releases/latest 的跳转地址解析版本号
-    MIHOMO_VERSION="$(curl -sSI https://github.com/MetaCubeX/mihomo/releases/latest | awk -F/ 'tolower($1) ~ /^location:/ {print $NF}' | tr -d '\r')"
+    MIHOMO_VERSION="$(curl -sSI -m 15 https://github.com/MetaCubeX/mihomo/releases/latest 2>/dev/null | awk -F/ 'tolower($1) ~ /^location:/ {print $NF}' | tr -d '\r' || true)"
+    if [[ -z "$MIHOMO_VERSION" ]]; then
+      # 连不上 GitHub 时使用已缓存的最新内核
+      CACHED="$(ls -t "$CACHE"/mihomo-"$CORE_ARCH"-v* 2>/dev/null | grep -v '\.gz$' | head -1 || true)"
+      [[ -n "$CACHED" ]] && MIHOMO_VERSION="${CACHED##*-}" && echo "    无法访问 GitHub，使用缓存内核 $MIHOMO_VERSION"
+    fi
   fi
   [[ -n "$MIHOMO_VERSION" ]] || { echo "无法获取 mihomo 版本号，请设置 MIHOMO_VERSION"; exit 1; }
   CORE="$CACHE/mihomo-$CORE_ARCH-$MIHOMO_VERSION"

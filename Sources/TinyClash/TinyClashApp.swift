@@ -8,27 +8,32 @@ struct TinyClashApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuContent().environment(state)
+            MenuPanel().environment(state)
         } label: {
             MenuBarLabel().environment(state)
         }
-        .menuBarExtraStyle(.menu)
+        .menuBarExtraStyle(.window)
 
-        Window("TinyClash", id: "main") {
-            MainView().environment(state)
+        #if TINYCLASH_PREVIEW
+        Window("TinyClash 面板预览", id: "panel-preview") {
+            MenuPanel().environment(state)
         }
-        .defaultSize(width: 1000, height: 660)
-        .windowResizability(.contentMinSize)
+        .windowResizability(.contentSize)
+        #endif
     }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        Task { @MainActor in
-            await AppState.shared.bootstrap()
-            if AppState.shared.profiles.isEmpty { WindowOpener.open() }
+        #if TINYCLASH_PREVIEW
+        switch UserDefaults.standard.string(forKey: "uiAppearance") {
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        default: break
         }
+        #endif
+        Task { @MainActor in await AppState.shared.bootstrap() }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -40,26 +45,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
-
-    /// 再次打开 App（Finder / Dock / open 命令）时显示主窗口
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        Task { @MainActor in WindowOpener.open() }
-        return true
-    }
-}
-
-/// 在没有 SwiftUI 环境的地方（AppDelegate）也能打开主窗口
-@MainActor
-enum WindowOpener {
-    static var openAction: OpenWindowAction?
-
-    static func open() {
-        NSApp.setActivationPolicy(.regular)
-        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true }) {
-            window.makeKeyAndOrderFront(nil)
-        } else {
-            openAction?(id: "main")
-        }
-        NSApp.activate(ignoringOtherApps: true)
-    }
 }

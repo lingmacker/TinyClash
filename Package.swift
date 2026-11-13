@@ -9,6 +9,11 @@ let package = Package(
             name: "TinyClash",
             path: "Sources/TinyClash",
             swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "TinyClashTests",
+            dependencies: ["TinyClash"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
         )
     ]
 )
