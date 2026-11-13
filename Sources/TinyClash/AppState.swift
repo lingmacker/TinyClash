@@ -143,11 +143,12 @@ final class AppState {
             errorMessage = "安装内核失败：\(error.localizedDescription)"
         }
         core.installBundledGeoIfNeeded()
+        core.installBundledWebUIIfNeeded()
         isPrivileged = core.isPrivileged
         coreVersion = CoreManager.version(of: AppPaths.coreBinary) ?? ""
         await recoverFromPreviousCrash()
 
-        profiles = store.load()
+        profiles = store.reconcileFileNames(store.load())
         if selectedProfile == nil { selectedProfileID = profiles.first?.id }
         if selectedProfile != nil { await startCore() }
 
@@ -562,14 +563,20 @@ final class AppState {
 
     func addRemoteProfile(url: String, name: String) async throws {
         let dl = try await store.download(url, viaProxyPort: proxyPortForDownload)
-        var profile = Profile(name: "", kind: .remote, url: url.trimmingCharacters(in: .whitespaces),
-                              fileName: "", updatedAt: Date())
-        profile.fileName = "\(profile.id.uuidString).yaml"
-        profile.name = !name.isEmpty ? name : (dl.suggestedName.map { ($0 as NSString).deletingPathExtension } ?? URL(string: url)?.host ?? "订阅")
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackName = (dl.suggestedName.map { ($0 as NSString).deletingPathExtension } ?? URL(string: url)?.host ?? "订阅")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedName = !trimmedName.isEmpty ? trimmedName : (fallbackName.isEmpty ? "订阅" : fallbackName)
+        var profile = Profile(name: resolvedName, kind: .remote, url: url.trimmingCharacters(in: .whitespaces),
+                              fileName: store.uniqueFileName(for: resolvedName, in: profiles), updatedAt: Date())
         profile.subscription = dl.subscription
         profile.homepage = dl.homepage
         if let h = dl.updateInterval, h > 0 { profile.updateInterval = h }
-        try await store.writeValidated(dl.data, to: profile.fileURL)
+        try await store.writeValidated(dl.data, to: profile.fileURL) {
+            if self.profiles.contains(where: { $0.fileName.lowercased() == profile.fileName.lowercased() }) {
+                throw ProfileError.profileChanged
+            }
+        }
         profiles.append(profile)
         store.save(profiles)
         if selectedProfileID == nil || !isRunning { await selectProfile(profile.id) }
@@ -577,18 +584,24 @@ final class AppState {
 
     func importLocalProfile(from url: URL) async throws {
         let data = try Data(contentsOf: url)
-        var profile = Profile(name: url.deletingPathExtension().lastPathComponent, kind: .local,
-                              fileName: "", updatedAt: Date(), updateInterval: 0)
-        profile.fileName = "\(profile.id.uuidString).yaml"
-        try await store.writeValidated(data, to: profile.fileURL)
+        let rawName = url.deletingPathExtension().lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = rawName.isEmpty ? "配置" : rawName
+        let profile = Profile(name: name, kind: .local,
+                              fileName: store.uniqueFileName(for: name, in: profiles), updatedAt: Date(), updateInterval: 0)
+        try await store.writeValidated(data, to: profile.fileURL) {
+            if self.profiles.contains(where: { $0.fileName.lowercased() == profile.fileName.lowercased() }) {
+                throw ProfileError.profileChanged
+            }
+        }
         profiles.append(profile)
         store.save(profiles)
         if selectedProfileID == nil || !isRunning { await selectProfile(profile.id) }
     }
 
     func createBlankProfile() -> Profile {
-        var profile = Profile(name: "新配置", kind: .local, fileName: "", updatedAt: Date(), updateInterval: 0)
-        profile.fileName = "\(profile.id.uuidString).yaml"
+        let name = "新配置"
+        let profile = Profile(name: name, kind: .local,
+                              fileName: store.uniqueFileName(for: name, in: profiles), updatedAt: Date(), updateInterval: 0)
         let template = """
         # mihomo 配置文档: https://wiki.metacubex.one/config/
         mixed-port: \(fallbackPort)
@@ -654,10 +667,21 @@ final class AppState {
         for p in profiles where p.needsUpdate { await updateProfile(p.id) }
     }
 
-    func saveProfile(_ profile: Profile) {
-        guard let i = profiles.firstIndex(where: { $0.id == profile.id }) else { return }
-        profiles[i] = profile
-        store.save(profiles)
+    @discardableResult
+    func saveProfile(_ profile: Profile) -> Bool {
+        guard profiles.contains(where: { $0.id == profile.id }) else { return false }
+        guard !updatingProfiles.contains(profile.id), !editingProfiles.contains(profile.id) else {
+            errorMessage = ProfileError.profileBusy.localizedDescription
+            return false
+        }
+        do {
+            profiles = try store.saveProfile(profile, in: profiles)
+            profileRevision &+= 1
+            return true
+        } catch {
+            errorMessage = "保存配置信息失败：\(error.localizedDescription)"
+            return false
+        }
     }
 
     func deleteProfile(_ id: UUID) async {
@@ -931,9 +955,32 @@ final class AppState {
         NSPasteboard.general.setString(terminalProxyCommand, forType: .string)
     }
 
-    /// 官方 Web 面板 metacubexd，自动填好控制地址
+    /// 官方 Web 面板 metacubexd，优先由本地内核同源提供，避免浏览器混合内容拦截
     var dashboardURL: URL? {
         guard let api else { return nil }
-        return URL(string: "https://metacubex.github.io/metacubexd/#/setup?hostname=127.0.0.1&port=\(api.port)&secret=\(api.secret)")
+        return Self.dashboardURL(port: api.port, secret: api.secret, useLocalUI: core.hasWebUI)
+    }
+
+    static func dashboardURL(port: Int, secret: String, useLocalUI: Bool) -> URL? {
+        var components = URLComponents()
+        if useLocalUI {
+            components.scheme = "http"
+            components.host = "127.0.0.1"
+            components.port = port
+            components.path = "/ui/"
+        } else {
+            components.scheme = "https"
+            components.host = "metacubex.github.io"
+            components.path = "/metacubexd/"
+        }
+        var query = URLComponents()
+        query.queryItems = [
+            URLQueryItem(name: "hostname", value: "127.0.0.1"),
+            URLQueryItem(name: "port", value: "\(port)"),
+            URLQueryItem(name: "secret", value: secret),
+            URLQueryItem(name: "http", value: "1"),
+        ]
+        components.fragment = "/setup?\(query.percentEncodedQuery ?? "")"
+        return components.url
     }
 }

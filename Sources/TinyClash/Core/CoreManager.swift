@@ -54,6 +54,36 @@ final class CoreManager: @unchecked Sendable {
         }
     }
 
+    var bundledWebUI: URL? {
+        guard let dir = Bundle.main.resourceURL?.appendingPathComponent("ui", isDirectory: true),
+              FileManager.default.fileExists(atPath: dir.appendingPathComponent("index.html").path) else { return nil }
+        return dir
+    }
+
+    var hasWebUI: Bool {
+        FileManager.default.fileExists(atPath: AppPaths.webUI.appendingPathComponent("index.html").path)
+    }
+
+    /// 将 App 内置的 metacubexd 复制到内核工作目录（若版本变化则更新）
+    func installBundledWebUIIfNeeded() {
+        guard let bundled = bundledWebUI else { return }
+        let fm = FileManager.default
+        let dstIndex = AppPaths.webUI.appendingPathComponent("index.html")
+        let srcIndex = bundled.appendingPathComponent("index.html")
+        if let srcData = try? Data(contentsOf: srcIndex),
+           let dstData = try? Data(contentsOf: dstIndex),
+           srcData == dstData {
+            return
+        }
+        let tmp = AppPaths.home.appendingPathComponent("metacubexd.new", isDirectory: true)
+        try? fm.removeItem(at: tmp)
+        guard (try? fm.copyItem(at: bundled, to: tmp)) != nil else { return }
+        try? fm.removeItem(at: AppPaths.webUI)
+        if (try? fm.moveItem(at: tmp, to: AppPaths.webUI)) == nil {
+            try? fm.removeItem(at: tmp)
+        }
+    }
+
     /// 替换内核文件（替换后 setuid 权限会丢失，需要重新授权）
     func replaceCore(with source: URL) throws {
         let fm = FileManager.default
@@ -108,8 +138,12 @@ final class CoreManager: @unchecked Sendable {
 
         let p = Process()
         p.executableURL = AppPaths.coreBinary
-        p.arguments = ["-d", AppPaths.home.path, "-f", configPath,
-                       "-ext-ctl", "127.0.0.1:\(port)", "-secret", secret]
+        var args = ["-d", AppPaths.home.path, "-f", configPath,
+                    "-ext-ctl", "127.0.0.1:\(port)", "-secret", secret]
+        if hasWebUI {
+            args += ["-ext-ui", AppPaths.webUI.path]
+        }
+        p.arguments = args
         p.currentDirectoryURL = AppPaths.home
         p.standardOutput = log
         p.standardError = log

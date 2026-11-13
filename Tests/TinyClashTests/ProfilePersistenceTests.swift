@@ -565,4 +565,80 @@ final class ProfilePersistenceTests: XCTestCase {
             RuleItem(index: 1, type: "Match", payload: "", proxy: "DIRECT"),
         ])
     }
+
+    func testDashboardURLUsesLocalUIAndHTTPParameter() {
+        let local = AppState.dashboardURL(port: 19090, secret: "sec-123", useLocalUI: true)
+        XCTAssertEqual(local?.absoluteString,
+                       "http://127.0.0.1:19090/ui/#/setup?hostname=127.0.0.1&port=19090&secret=sec-123&http=1")
+
+        let remote = AppState.dashboardURL(port: 19090, secret: "sec-123", useLocalUI: false)
+        XCTAssertEqual(remote?.absoluteString,
+                       "https://metacubex.github.io/metacubexd/#/setup?hostname=127.0.0.1&port=19090&secret=sec-123&http=1")
+    }
+
+    func testSanitizedStemAndUniqueFileNameHandleSpecialCharsAndCollisions() throws {
+        XCTAssertEqual(ProfileStore.sanitizedStem(for: "  机场 A/主线:1  "), "机场 A-主线-1")
+        XCTAssertEqual(ProfileStore.sanitizedStem(for: "..hidden.yaml"), "hidden")
+        XCTAssertEqual(ProfileStore.sanitizedStem(for: "   .yml "), "配置")
+        XCTAssertEqual(ProfileStore.sanitizedStem(for: "我的配置.YAML"), "我的配置")
+
+        let fixture = try Fixture()
+        let store = fixture.store()
+        let first = Profile(name: "My Sub", kind: .remote, fileName: "My Sub.yaml", updatedAt: Date())
+        let colliding = store.uniqueFileName(for: "my sub", in: [first])
+        XCTAssertEqual(colliding, "my sub-2.yaml")
+
+        // Case-only rename for the same profile is allowed on macOS case-insensitive disk
+        let renamedSame = store.uniqueFileName(for: "test", currentFileName: "test.yaml", excludingProfileID: fixture.profile.id, in: [fixture.profile])
+        XCTAssertEqual(renamedSame, "test.yaml")
+    }
+
+    func testSaveProfileRenamesProfileAndRuntimeFilesAndRollsBackOnIndexFailure() throws {
+        let fixture = try Fixture()
+        let runtimeDir = fixture.directory.appendingPathComponent("runtime", isDirectory: true)
+        try FileManager.default.createDirectory(at: runtimeDir, withIntermediateDirectories: true)
+        let store = ProfileStore(profilesDirectory: fixture.directory, runtimeDirectory: runtimeDir, indexURL: fixture.index, validate: { _ in })
+        try Data("runtime: true\n".utf8).write(to: runtimeDir.appendingPathComponent(fixture.profile.fileName))
+        store.save([fixture.profile])
+
+        var edited = fixture.profile
+        edited.name = "主力订阅"
+        let updated = try store.saveProfile(edited, in: [fixture.profile])
+        XCTAssertEqual(updated[0].name, "主力订阅")
+        XCTAssertEqual(updated[0].fileName, "主力订阅.yaml")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.directory.appendingPathComponent("test.yaml").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.directory.appendingPathComponent("主力订阅.yaml").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: runtimeDir.appendingPathComponent("test.yaml").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: runtimeDir.appendingPathComponent("主力订阅.yaml").path))
+        XCTAssertEqual(store.load(), updated)
+
+        // Rollback file move if writing profiles.json fails
+        let badIndex = fixture.directory.appendingPathComponent("missing/profiles.json")
+        let failingStore = ProfileStore(profilesDirectory: fixture.directory, runtimeDirectory: runtimeDir, indexURL: badIndex, validate: { _ in })
+        var secondEdit = updated[0]
+        secondEdit.name = "失败回滚"
+        XCTAssertThrowsError(try failingStore.saveProfile(secondEdit, in: updated))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.directory.appendingPathComponent("主力订阅.yaml").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.directory.appendingPathComponent("失败回滚.yaml").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: runtimeDir.appendingPathComponent("主力订阅.yaml").path))
+    }
+
+    func testReconcileFileNamesMigratesLegacyUUIDFileNamesToMatchDisplayNames() throws {
+        let fixture = try Fixture()
+        let runtimeDir = fixture.directory.appendingPathComponent("runtime", isDirectory: true)
+        try FileManager.default.createDirectory(at: runtimeDir, withIntermediateDirectories: true)
+        let store = ProfileStore(profilesDirectory: fixture.directory, runtimeDirectory: runtimeDir, indexURL: fixture.index, validate: { _ in })
+
+        let p1 = Profile(name: "公司机场", kind: .remote, fileName: "\(UUID().uuidString).yaml", updatedAt: Date())
+        let p2 = Profile(name: "公司机场", kind: .remote, fileName: "\(UUID().uuidString).yaml", updatedAt: Date())
+        try Data("a: 1\n".utf8).write(to: fixture.directory.appendingPathComponent(p1.fileName))
+        try Data("b: 2\n".utf8).write(to: fixture.directory.appendingPathComponent(p2.fileName))
+        store.save([p1, p2])
+
+        let reconciled = store.reconcileFileNames(store.load())
+        XCTAssertEqual(reconciled.map(\.fileName), ["公司机场.yaml", "公司机场-2.yaml"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.directory.appendingPathComponent("公司机场.yaml").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.directory.appendingPathComponent("公司机场-2.yaml").path))
+        XCTAssertEqual(store.load(), reconciled)
+    }
 }

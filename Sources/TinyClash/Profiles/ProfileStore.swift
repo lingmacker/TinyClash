@@ -74,10 +74,12 @@ final class ProfileStore {
     static let userAgent = "clash.meta/mihomo TinyClash"
 
     private let profilesDirectory: URL
+    private let runtimeDirectory: URL
     private let indexURL: URL
     private let validate: (URL) async throws -> Void
 
     init(profilesDirectory: URL = AppPaths.profiles,
+         runtimeDirectory: URL = AppPaths.runtime,
          indexURL: URL = AppPaths.profilesIndex,
          validate: @escaping (URL) async throws -> Void = { url in
              // Unlike import's permissive check, edits must actually pass mihomo -t.
@@ -85,6 +87,7 @@ final class ProfileStore {
              guard result.ok else { throw ProfileError.invalidConfig(result.output) }
          }) {
         self.profilesDirectory = profilesDirectory
+        self.runtimeDirectory = runtimeDirectory
         self.indexURL = indexURL
         self.validate = validate
     }
@@ -219,6 +222,157 @@ final class ProfileStore {
 
     func save(_ profiles: [Profile]) {
         try? encode(profiles).write(to: indexURL, options: .atomic)
+    }
+
+    /// 将展示名称清洗为安全、无路径分隔符的配置文件主干名（不含 `.yaml` 扩展名）
+    static func sanitizedStem(for name: String) -> String {
+        var cleaned = ""
+        for scalar in name.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars {
+            if scalar == "/" || scalar == ":" || scalar == "\0" || CharacterSet.controlCharacters.contains(scalar) {
+                cleaned.append("-")
+            } else {
+                cleaned.unicodeScalars.append(scalar)
+            }
+        }
+        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        for ext in [".yaml", ".yml"] where cleaned.lowercased().hasSuffix(ext) {
+            cleaned = String(cleaned.dropLast(ext.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            break
+        }
+        while cleaned.hasPrefix(".") {
+            cleaned.removeFirst()
+            cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if cleaned.utf8.count > 180 {
+            var truncated = ""
+            for ch in cleaned {
+                let s = String(ch)
+                if truncated.utf8.count + s.utf8.count > 180 { break }
+                truncated.append(ch)
+            }
+            cleaned = truncated.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return cleaned.isEmpty ? "配置" : cleaned
+    }
+
+    /// 为配置生成与展示名一致且不冲突的 `.yaml` 文件名（按 macOS 默认大小写不敏感盘查重）
+    func uniqueFileName(for name: String,
+                        currentFileName: String? = nil,
+                        excludingProfileID: UUID? = nil,
+                        in profiles: [Profile]) -> String {
+        let stem = Self.sanitizedStem(for: name)
+        let usedLowercased = Set(
+            profiles.filter { $0.id != excludingProfileID }.map { $0.fileName.lowercased() }
+        )
+        let currentLowercased = currentFileName?.lowercased()
+        let fm = FileManager.default
+
+        func available(_ candidate: String) -> Bool {
+            let lower = candidate.lowercased()
+            if usedLowercased.contains(lower) { return false }
+            if let currentLowercased, lower == currentLowercased { return true }
+            return !fm.fileExists(atPath: profilesDirectory.appendingPathComponent(candidate).path)
+        }
+
+        let base = "\(stem).yaml"
+        if available(base) { return base }
+        var index = 2
+        while true {
+            let candidate = "\(stem)-\(index).yaml"
+            if available(candidate) { return candidate }
+            index += 1
+        }
+    }
+
+    private func moveFileIfExists(from oldName: String, to newName: String, in directory: URL) throws -> Bool {
+        guard oldName != newName else { return false }
+        let fm = FileManager.default
+        let oldURL = directory.appendingPathComponent(oldName)
+        let newURL = directory.appendingPathComponent(newName)
+        guard fm.fileExists(atPath: oldURL.path) else { return false }
+        try fm.moveItem(at: oldURL, to: newURL)
+        return true
+    }
+
+    /// 更新配置信息并在名称变化时同步重命名磁盘上的 YAML（及 legacy runtime YAML）
+    func saveProfile(_ profile: Profile, in profiles: [Profile]) throws -> [Profile] {
+        guard let i = profiles.firstIndex(where: { $0.id == profile.id }) else { return profiles }
+        var updatedProfile = profile
+        let trimmedName = profile.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        updatedProfile.name = trimmedName.isEmpty ? profiles[i].name : trimmedName
+
+        let oldFileName = profiles[i].fileName
+        let targetFileName = uniqueFileName(
+            for: updatedProfile.name,
+            currentFileName: oldFileName,
+            excludingProfileID: updatedProfile.id,
+            in: profiles
+        )
+
+        var movedProfileFile = false
+        var movedRuntimeFile = false
+        if targetFileName != oldFileName {
+            movedProfileFile = try moveFileIfExists(from: oldFileName, to: targetFileName, in: profilesDirectory)
+            do {
+                movedRuntimeFile = try moveFileIfExists(from: oldFileName, to: targetFileName, in: runtimeDirectory)
+            } catch {
+                if movedProfileFile {
+                    _ = try? moveFileIfExists(from: targetFileName, to: oldFileName, in: profilesDirectory)
+                }
+                throw error
+            }
+            updatedProfile.fileName = targetFileName
+        }
+
+        var updated = profiles
+        updated[i] = updatedProfile
+        do {
+            let metadata = try encode(updated)
+            try metadata.write(to: indexURL, options: .atomic)
+        } catch {
+            if movedProfileFile {
+                _ = try? moveFileIfExists(from: targetFileName, to: oldFileName, in: profilesDirectory)
+            }
+            if movedRuntimeFile {
+                _ = try? moveFileIfExists(from: targetFileName, to: oldFileName, in: runtimeDirectory)
+            }
+            throw error
+        }
+        return updated
+    }
+
+    /// 启动时将历史 `<UUID>.yaml` 等与展示名不一致的文件名统一成 `<name>.yaml`
+    func reconcileFileNames(_ profiles: [Profile]) -> [Profile] {
+        guard !profiles.isEmpty else { return profiles }
+        var updated = profiles
+        var changed = false
+        let fm = FileManager.default
+        for i in updated.indices {
+            let oldFileName = updated[i].fileName
+            let oldURL = profilesDirectory.appendingPathComponent(oldFileName)
+            guard fm.fileExists(atPath: oldURL.path) else { continue }
+            let desired = uniqueFileName(
+                for: updated[i].name,
+                currentFileName: oldFileName,
+                excludingProfileID: updated[i].id,
+                in: updated
+            )
+            guard desired != oldFileName else { continue }
+            do {
+                let moved = try moveFileIfExists(from: oldFileName, to: desired, in: profilesDirectory)
+                if moved {
+                    _ = try? moveFileIfExists(from: oldFileName, to: desired, in: runtimeDirectory)
+                    updated[i].fileName = desired
+                    changed = true
+                }
+            } catch {
+                continue
+            }
+        }
+        if changed {
+            try? encode(updated).write(to: indexURL, options: .atomic)
+        }
+        return updated
     }
 
     struct Download {

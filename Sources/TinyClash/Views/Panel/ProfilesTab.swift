@@ -222,8 +222,9 @@ private struct EditProfilePage: View {
         VStack(spacing: 0) {
             SubpageHeader(title: "编辑配置", back: back) {
                 Button("保存") {
-                    state.saveProfile(profile)
-                    back()
+                    if state.saveProfile(profile) {
+                        back()
+                    }
                 }
                 .buttonStyle(.borderless)
                 .keyboardShortcut(.defaultAction)

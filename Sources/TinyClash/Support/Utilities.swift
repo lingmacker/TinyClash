@@ -8,6 +8,7 @@ enum AppPaths {
     }()
     /// mihomo 的工作目录（-d），provider、cache.db、geo 数据都放在这里
     static let home = base.appendingPathComponent("mihomo", isDirectory: true)
+    static let webUI = home.appendingPathComponent("metacubexd", isDirectory: true)
     static let profiles = base.appendingPathComponent("profiles", isDirectory: true)
     static let profilesIndex = base.appendingPathComponent("profiles.json")
     /// Compatibility-only runtime YAML for legacy profiles.json overlays.

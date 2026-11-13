@@ -67,6 +67,32 @@ for f in geoip.metadb geosite.dat geoip.dat; do
   fi
 done
 
+echo "==> 准备 Web 面板 (metacubexd)"
+UI_DIR="$CACHE/ui"
+if [[ ! -s "$UI_DIR/index.html" ]]; then
+  UI_TGZ="$CACHE/metacubexd.tgz.tmp"
+  UI_TMP="$CACHE/ui.tmp"
+  rm -rf "$UI_TMP" "$UI_TGZ"
+  mkdir -p "$UI_TMP"
+  UI_URL="https://github.com/MetaCubeX/metacubexd/releases/latest/download/compressed-dist.tgz"
+  echo "    下载 $UI_URL"
+  if curl -fSL --retry 3 -o "$UI_TGZ" "$UI_URL"; then
+    tar -xzf "$UI_TGZ" -C "$UI_TMP"
+    rm -f "$UI_TGZ"
+    if [[ -s "$UI_TMP/index.html" ]]; then
+      rm -rf "$UI_DIR"
+      mv "$UI_TMP" "$UI_DIR"
+    else
+      echo "    警告: metacubexd 压缩包结构异常，跳过内置 Web 面板"
+      rm -rf "$UI_TMP"
+    fi
+  else
+    rm -f "$UI_TGZ"
+    rm -rf "$UI_TMP"
+    echo "    警告: 无法下载 metacubexd，Web 面板将回退到在线版本"
+  fi
+fi
+
 echo "==> 组装 $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -74,6 +100,7 @@ cp "$BIN" "$APP/Contents/MacOS/TinyClash"
 cp "$CORE" "$APP/Contents/Resources/mihomo"
 chmod +x "$APP/Contents/Resources/mihomo"
 cp -R "$GEO_DIR" "$APP/Contents/Resources/geo"
+[[ -s "$UI_DIR/index.html" ]] && cp -R "$UI_DIR" "$APP/Contents/Resources/ui"
 [[ -f "$ROOT/Resources/AppIcon.icns" ]] && cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/"
 
 cat > "$APP/Contents/Info.plist" <<EOF
