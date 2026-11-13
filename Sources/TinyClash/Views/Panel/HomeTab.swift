@@ -28,22 +28,6 @@ struct HomeTab: View {
             Link("配置文档", destination: URL(string: "https://wiki.metacubex.one/config/")!)
                 .font(.caption)
             Spacer()
-            Button { NSApp.terminate(nil) } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "power")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text("退出 TinyClash")
-                        .font(.caption.weight(.medium))
-                }
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Theme.inset, in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
-                .hoverHighlight(cornerRadius: Theme.Radius.chip)
-                .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
-            }
-            .buttonStyle(PressableStyle())
-            .keyboardShortcut("q")
         }
         .padding(.horizontal, 18)
         .padding(.top, 8)

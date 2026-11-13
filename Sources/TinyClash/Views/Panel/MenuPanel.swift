@@ -133,6 +133,29 @@ struct MenuPanel: View {
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: Theme.Space.s)
+            Button { NSApp.terminate(nil) } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "power")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("退出")
+                        .font(.caption.weight(.medium))
+                }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Theme.inset, in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
+                        .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
+                )
+                .hoverHighlight(cornerRadius: Theme.Radius.chip)
+                .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
+            }
+            .buttonStyle(PressableStyle())
+            .fixedSize()
+            .keyboardShortcut("q")
+            .help("退出 TinyClash（⌘Q）")
+            .accessibilityLabel("退出 TinyClash")
         }
     }
 
