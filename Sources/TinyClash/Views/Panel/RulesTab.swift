@@ -4,7 +4,6 @@ struct RulesTab: View {
     @Environment(AppState.self) private var state
     @State private var route = Route.list
     @State private var rules: [RuleItem] = []
-    @State private var search = ""
     @State private var loading = false
     @State private var error: String?
     @State private var requestID = UUID()
@@ -33,14 +32,6 @@ struct RulesTab: View {
                 needsCoreRestart: state.needsCoreRestart)
     }
 
-    private var filteredRules: [(offset: Int, element: RuleItem)] {
-        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        return rules.enumerated().filter { entry in
-            query.isEmpty || [entry.element.type, entry.element.payload, entry.element.proxy]
-                .contains { $0.localizedCaseInsensitiveContains(query) }
-        }
-    }
-
     var body: some View {
         switch route {
         case .list:
@@ -55,41 +46,30 @@ struct RulesTab: View {
 
     private var ruleList: some View {
         VStack(spacing: 0) {
-            let showSearch = state.isRunning && !rules.isEmpty
-            VStack(spacing: 0) {
-                HStack(spacing: 10) {
-                    Text(search.isEmpty ? "\(rules.count) 条规则" : "\(filteredRules.count) / \(rules.count) 条规则")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .help(state.needsCoreRestart
-                              ? "配置已修改，当前按配置文件规则顺序显示（重启内核后生效）"
-                              : "按内核匹配顺序显示；RuleSet 显示集合引用，不展开集合内的条目")
-                    Spacer(minLength: 4)
-                    Button { Task { await loadRules() } } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .help(state.needsCoreRestart ? "从配置文件刷新规则（需重启内核后生效）" : "从内核刷新规则")
-                    .accessibilityLabel("刷新规则")
-                    .disabled(!state.isRunning || loading)
-                    Button { route = .add } label: {
-                        Label("添加规则", systemImage: "plus")
-                    }
-                    .disabled(!canEditRules)
-                    if state.isEditingSelectedProfile {
-                        ProgressView().controlSize(.mini)
-                    }
+            HStack(spacing: 10) {
+                Text("\(rules.count) 条规则")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .help(state.needsCoreRestart
+                          ? "配置已修改，当前按配置文件规则顺序显示（重启内核后生效）"
+                          : "按内核匹配顺序显示；RuleSet 显示集合引用，不展开集合内的条目")
+                Spacer(minLength: 4)
+                Button { Task { await loadRules() } } label: {
+                    Image(systemName: "arrow.clockwise")
                 }
-                .font(.caption)
-                .buttonStyle(.borderless)
-                .padding(.top, 14)
-                .padding(.horizontal, 14)
-                .padding(.bottom, showSearch ? 8 : 14)
-                if showSearch {
-                    TextField("搜索类型、内容或目标策略", text: $search)
-                        .textFieldStyle(.roundedBorder)
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 10)
+                .help(state.needsCoreRestart ? "从配置文件刷新规则（需重启内核后生效）" : "从内核刷新规则")
+                .accessibilityLabel("刷新规则")
+                .disabled(!state.isRunning || loading)
+                Button { route = .add } label: {
+                    Label("添加规则", systemImage: "plus")
+                }
+                .disabled(!canEditRules)
+                if state.isEditingSelectedProfile {
+                    ProgressView().controlSize(.mini)
                 }
             }
+            .font(.caption)
+            .buttonStyle(.borderless)
+            .padding(14)
             Divider()
             if state.coreState == .starting {
                 VStack(spacing: 8) {
@@ -118,8 +98,6 @@ struct RulesTab: View {
             } else if rules.isEmpty {
                 EmptyHint(text: "当前内核没有加载规则\n点击「添加规则」创建一个")
                     .multilineTextAlignment(.center)
-            } else if filteredRules.isEmpty {
-                EmptyHint(text: "没有匹配的规则")
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: Theme.Space.s) {
@@ -129,27 +107,27 @@ struct RulesTab: View {
                                 .fixedSize(horizontal: false, vertical: true)
                                 .padding(.horizontal, 4)
                         }
-                        ForEach(filteredRules, id: \.offset) { entry in
-                            Button { open(entry.element, at: entry.offset) } label: {
-                                RuleCard(rule: entry.element)
+                        ForEach(Array(rules.enumerated()), id: \.offset) { index, rule in
+                            Button { open(rule, at: index) } label: {
+                                RuleCard(rule: rule)
                                     .hoverHighlight(cornerRadius: Theme.Radius.tile)
                             }
                             .buttonStyle(PressableStyle())
                             .contextMenu {
-                                Button("编辑规则") { open(entry.element, at: entry.offset) }
-                                Button("复制匹配内容") { copy(entry.element.payload) }.disabled(entry.element.payload.isEmpty)
-                                Button("复制目标策略") { copy(entry.element.proxy) }
+                                Button("编辑规则") { open(rule, at: index) }
+                                Button("复制匹配内容") { copy(rule.payload) }.disabled(rule.payload.isEmpty)
+                                Button("复制目标策略") { copy(rule.proxy) }
                                 Divider()
                                 Button("删除规则", role: .destructive) {
-                                    Task { await state.deleteRule(entry.element, at: entry.offset) }
+                                    Task { await state.deleteRule(rule, at: index) }
                                 }
                                 .disabled(!canEditRules)
                             }
                             .accessibilityAction(named: "编辑规则") {
-                                open(entry.element, at: entry.offset)
+                                open(rule, at: index)
                             }
                             .accessibilityAction(named: "删除规则") {
-                                if canEditRules { Task { await state.deleteRule(entry.element, at: entry.offset) } }
+                                if canEditRules { Task { await state.deleteRule(rule, at: index) } }
                             }
                         }
                     }
@@ -210,18 +188,45 @@ struct RulesTab: View {
 private struct RuleCard: View {
     var rule: RuleItem
 
+    private var payloadText: String {
+        if !rule.payload.isEmpty { return rule.payload }
+        return rule.type.lowercased() == "match" ? "其他所有流量" : "—"
+    }
+
+    private var policyTint: Color {
+        switch rule.proxy.uppercased() {
+        case "DIRECT": return Theme.active
+        case "REJECT", "REJECT-DROP": return Theme.failure
+        default: return Color.accentColor
+        }
+    }
+
     var body: some View {
-        HStack(spacing: 8) {
-            Tag(text: rule.type)
-                .fixedSize()
-            Text(rule.payload.isEmpty ? (rule.type.lowercased() == "match" ? "其他所有流量" : "—") : rule.payload)
-                .font(.callout.weight(.medium)).lineLimit(1).truncationMode(.middle)
-                .frame(minWidth: 60, maxWidth: .infinity, alignment: .leading)
-                .help(rule.payload)
-            Text(rule.proxy).font(.caption.weight(.medium)).foregroundStyle(Color.accentColor)
-                .lineLimit(1).truncationMode(.middle).help(rule.proxy)
-            Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
-                .fixedSize()
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(payloadText)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(rule.payload)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize()
+            }
+            HStack(spacing: 8) {
+                Tag(text: rule.type)
+                    .fixedSize()
+                Spacer(minLength: 8)
+                Text(rule.proxy)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(policyTint)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(rule.proxy)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
