@@ -166,7 +166,9 @@ struct HomeTab: View {
 
     private var emptyState: some View {
         VStack(spacing: Theme.Space.m) {
-            Image(systemName: "paperplane.circle").font(.system(size: 40, weight: .light)).foregroundStyle(.secondary)
+            TinyClashMark()
+                .frame(width: 38, height: 38)
+                .foregroundStyle(.secondary)
             Text("添加一个配置开始使用").font(.headline)
             Text("在「配置」中添加订阅链接，或导入 mihomo 官方格式的 YAML 文件")
                 .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)

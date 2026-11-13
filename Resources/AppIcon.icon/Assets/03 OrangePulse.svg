@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="orangeGrad" x1="450" y1="680" x2="574" y2="804" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF9661"/>
+      <stop offset="100%" stop-color="#F27234"/>
+    </linearGradient>
+  </defs>
+  <g transform="rotate(-24 512 512)">
+    <circle cx="512" cy="744" r="58" fill="url(#orangeGrad)"/>
+  </g>
+</svg>

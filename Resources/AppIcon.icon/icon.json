@@ -1,0 +1,51 @@
+{
+  "fill": {
+    "automatic-gradient": "extended-srgb:0.15686,0.16078,0.17255,1.00000"
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "03 OrangePulse.svg",
+          "name": "Pulse Node"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.28
+      },
+      "specular": false
+    },
+    {
+      "layers": [
+        {
+          "image-name": "02 PrimaryCapsules.svg",
+          "name": "Primary Flow"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.22
+      },
+      "specular": false
+    },
+    {
+      "layers": [
+        {
+          "image-name": "01 SecondaryCapsule.svg",
+          "name": "Secondary Flow"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.16
+      },
+      "specular": false
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "macOS"
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="silverMuted" x1="260" y1="260" x2="760" y2="780" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#D2D7DE"/>
+      <stop offset="100%" stop-color="#9CA3AD"/>
+    </linearGradient>
+  </defs>
+  <g transform="rotate(-24 512 512)">
+    <rect x="276" y="346" width="116" height="360" rx="58" fill="url(#silverMuted)"/>
+  </g>
+</svg>

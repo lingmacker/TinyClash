@@ -38,7 +38,7 @@ struct MenuBarLabel: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: state.isProxying ? "paperplane.circle.fill" : "paperplane.circle")
+            Image(state.isProxying ? "MenuBarIcon" : "MenuBarIconIdle")
             if state.showSpeedInMenuBar && state.isRunning {
                 Text("\(Image(systemName: "arrow.down"))\(Format.compactSpeed(state.downSpeed)) \(Image(systemName: "arrow.up"))\(Format.compactSpeed(state.upSpeed))")
                     .monospacedDigit()
@@ -124,9 +124,14 @@ struct MenuPanel: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            Image(systemName: "paperplane.circle.fill")
-                .font(.system(size: 26))
-                .foregroundStyle(state.isProxying ? Color.accentColor : .secondary)
+            TinyClashMark()
+                .frame(width: 17, height: 17)
+                .foregroundStyle(state.isProxying ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
+                .frame(width: 28, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(state.isProxying ? AnyShapeStyle(Theme.controlFill) : AnyShapeStyle(Theme.inset))
+                )
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text("TinyClash").font(.headline)

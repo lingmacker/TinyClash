@@ -101,7 +101,19 @@ cp "$CORE" "$APP/Contents/Resources/mihomo"
 chmod +x "$APP/Contents/Resources/mihomo"
 cp -R "$GEO_DIR" "$APP/Contents/Resources/geo"
 [[ -s "$UI_DIR/index.html" ]] && cp -R "$UI_DIR" "$APP/Contents/Resources/ui"
-[[ -f "$ROOT/Resources/AppIcon.icns" ]] && cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/"
+
+echo "==> 编译图标与资源目录"
+ACTOOL_PLIST="$CACHE/actool-partial-info.plist"
+xcrun actool \
+  --compile "$APP/Contents/Resources" \
+  --platform macosx \
+  --minimum-deployment-target 14.0 \
+  --app-icon AppIcon \
+  --output-partial-info-plist "$ACTOOL_PLIST" \
+  --errors --warnings --notices \
+  --output-format human-readable-text \
+  "$ROOT/Resources/AppIcon.icon" \
+  "$ROOT/Resources/Assets.xcassets"
 
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -116,6 +128,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleVersion</key><string>1</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>CFBundleIconName</key><string>AppIcon</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>

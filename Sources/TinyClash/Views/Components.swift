@@ -1,5 +1,27 @@
 import SwiftUI
 
+/// TinyClash 品牌几何标志：阶跃流柱（三枚斜切胶囊 + 脉冲节点）
+struct TinyClashMark: Shape {
+    func path(in rect: CGRect) -> Path {
+        let s = min(rect.width, rect.height)
+        let cx = rect.midX
+        let cy = rect.midY
+        let scale = s / 1024.0 * 1.34
+        let rad = -24.0 * CGFloat.pi / 180.0
+        let transform = CGAffineTransform(translationX: cx, y: cy)
+            .rotated(by: rad)
+            .scaledBy(x: scale, y: scale)
+            .translatedBy(x: -512, y: -512)
+
+        var p = Path()
+        p.addRoundedRect(in: CGRect(x: 266, y: 346, width: 124, height: 360), cornerSize: CGSize(width: 62, height: 62), transform: transform)
+        p.addRoundedRect(in: CGRect(x: 450, y: 226, width: 124, height: 386), cornerSize: CGSize(width: 62, height: 62), transform: transform)
+        p.addEllipse(in: CGRect(x: 450, y: 692, width: 124, height: 124), transform: transform)
+        p.addRoundedRect(in: CGRect(x: 634, y: 308, width: 124, height: 332), cornerSize: CGSize(width: 62, height: 62), transform: transform)
+        return p
+    }
+}
+
 /// 大号开关磁贴：系统代理 / TUN
 struct ToggleTile: View {
     var title: String
