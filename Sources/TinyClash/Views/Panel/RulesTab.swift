@@ -22,13 +22,15 @@ struct RulesTab: View {
         var profileID: UUID?
         var port: Int?
         var profileRevision: Int
+        var needsCoreRestart: Bool
     }
 
     private var loadKey: LoadKey {
         LoadKey(running: state.isRunning,
                 profileID: state.selectedProfileID,
                 port: state.api?.port,
-                profileRevision: state.profileRevision)
+                profileRevision: state.profileRevision,
+                needsCoreRestart: state.needsCoreRestart)
     }
 
     private var filteredRules: [(offset: Int, element: RuleItem)] {
@@ -58,12 +60,14 @@ struct RulesTab: View {
                 HStack(spacing: 10) {
                     Text(search.isEmpty ? "\(rules.count) 条规则" : "\(filteredRules.count) / \(rules.count) 条规则")
                         .font(.caption).foregroundStyle(.secondary)
-                        .help("按内核匹配顺序显示；RuleSet 显示集合引用，不展开集合内的条目")
+                        .help(state.needsCoreRestart
+                              ? "配置已修改，当前按配置文件规则顺序显示（重启内核后生效）"
+                              : "按内核匹配顺序显示；RuleSet 显示集合引用，不展开集合内的条目")
                     Spacer(minLength: 4)
                     Button { Task { await loadRules() } } label: {
                         Image(systemName: "arrow.clockwise")
                     }
-                    .help("从内核刷新规则")
+                    .help(state.needsCoreRestart ? "从配置文件刷新规则（需重启内核后生效）" : "从内核刷新规则")
                     .accessibilityLabel("刷新规则")
                     .disabled(!state.isRunning || loading)
                     Button { route = .add } label: {
@@ -87,7 +91,13 @@ struct RulesTab: View {
                 }
             }
             Divider()
-            if !state.isRunning {
+            if state.coreState == .starting {
+                VStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("内核启动中…").font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if !state.isRunning {
                 EmptyHint(text: state.selectedProfile == nil ? "请先在「配置」页添加并选择配置" : "内核未运行\n启动后可查看规则，仍可添加规则并写入当前配置")
                     .multilineTextAlignment(.center)
             } else if loading {
@@ -166,18 +176,29 @@ struct RulesTab: View {
     private func loadRules() async {
         let id = UUID()
         requestID = id
+        guard state.isRunning else {
+            rules = []
+            error = nil
+            loading = false
+            return
+        }
+        if state.needsCoreRestart {
+            rules = state.yamlRuleItems()
+            error = nil
+            loading = false
+            return
+        }
         rules = []
         error = nil
-        loading = state.isRunning
+        loading = true
         defer { if requestID == id { loading = false } }
-        guard state.isRunning else { return }
         guard let api = state.api else {
             error = "内核控制接口尚未就绪，请稍后重试。"
             return
         }
         do {
             let loaded = try await api.rules()
-            guard requestID == id, !Task.isCancelled, state.isRunning, state.api === api else { return }
+            guard requestID == id, !Task.isCancelled, state.isRunning, !state.needsCoreRestart, state.api === api else { return }
             rules = loaded
         } catch {
             guard requestID == id, !Task.isCancelled else { return }

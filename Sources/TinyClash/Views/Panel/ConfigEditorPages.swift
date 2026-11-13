@@ -386,7 +386,7 @@ private struct ConfigWriteNotice: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("直接写入「\(state.selectedProfile?.name ?? "当前配置")」的 YAML 文件。\(placement)保存前用内核校验；内核运行时会重启以应用更改。")
+            Text("直接写入「\(state.selectedProfile?.name ?? "当前配置")」的 YAML 文件。\(placement)保存前用内核校验；内核运行时不会自动重启，可在全部改完后点击顶部「需重启生效」应用更改。")
             if state.selectedProfile?.kind == .remote {
                 Text("订阅更新会覆盖本地修改。").foregroundStyle(Theme.warning)
             }

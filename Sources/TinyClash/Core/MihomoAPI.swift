@@ -67,6 +67,20 @@ struct ProxyItem: Decodable, Identifiable {
     }
 }
 
+extension ProxyItem {
+    init(name: String, type: String, now: String? = nil, all: [String]? = nil) {
+        self.name = name
+        self.type = type
+        self.now = now
+        self.all = all
+        self.hidden = nil
+        self.udp = nil
+        self.history = nil
+        self.extra = nil
+        self.testUrl = nil
+    }
+}
+
 struct ProxiesResponse: Decodable { var proxies: [String: ProxyItem] }
 
 struct RuleItem: Decodable, Identifiable, Hashable {

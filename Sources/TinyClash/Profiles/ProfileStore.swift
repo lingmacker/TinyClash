@@ -124,6 +124,22 @@ final class ProfileStore {
         return ConfigOverlay.group(named: name, in: merged)
     }
 
+    func groupSummaries(in profile: Profile) -> [ConfigOverlay.GroupSummary] {
+        let file = profilesDirectory.appendingPathComponent(profile.fileName)
+        guard let yaml = try? String(contentsOf: file, encoding: .utf8),
+              let merged = try? ConfigOverlay.apply(rules: profile.customRules ?? [], groups: profile.customGroups ?? [], to: yaml)
+        else { return [] }
+        return ConfigOverlay.groupSummaries(in: merged)
+    }
+
+    func ruleItems(in profile: Profile) -> [RuleItem] {
+        let file = profilesDirectory.appendingPathComponent(profile.fileName)
+        guard let yaml = try? String(contentsOf: file, encoding: .utf8),
+              let merged = try? ConfigOverlay.apply(rules: profile.customRules ?? [], groups: profile.customGroups ?? [], to: yaml)
+        else { return [] }
+        return ConfigOverlay.ruleItems(in: merged)
+    }
+
     /// Preparation never changes the official YAML or metadata. Paths and validation
     /// are injectable so tests need neither AppPaths nor a running core.
     @MainActor

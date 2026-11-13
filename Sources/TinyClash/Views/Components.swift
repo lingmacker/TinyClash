@@ -118,11 +118,28 @@ struct RouteRibbon: View {
     }
 }
 
-/// 状态指示：接管中 / 未接管 / 内核状态
+/// 状态指示：接管中 / 未接管 / 需重启生效 / 内核状态
 struct StatusBadge: View {
     @Environment(AppState.self) private var state
 
+    private var needsRestart: Bool {
+        state.coreState == .running && state.needsCoreRestart
+    }
+
     var body: some View {
+        if needsRestart {
+            Button { Task { await state.restartCore() } } label: {
+                badge.hoverHighlight(cornerRadius: 999)
+            }
+            .buttonStyle(PressableStyle())
+            .help("配置已修改，点击重启内核以应用更改")
+            .accessibilityLabel("需重启生效，点击重启内核")
+        } else {
+            badge
+        }
+    }
+
+    private var badge: some View {
         HStack(spacing: 6) {
             Circle().fill(color).frame(width: 7, height: 7)
             Text(text).font(.caption.weight(.medium))
@@ -135,7 +152,9 @@ struct StatusBadge: View {
 
     private var text: String {
         switch state.coreState {
-        case .running: return state.isProxying ? "接管中" : "未接管流量"
+        case .running:
+            if state.needsCoreRestart { return "需重启生效" }
+            return state.isProxying ? "接管中" : "未接管流量"
         case .starting: return "启动中"
         case .stopped: return "内核已停止"
         case .failed: return "内核异常"
@@ -144,7 +163,9 @@ struct StatusBadge: View {
 
     private var color: Color {
         switch state.coreState {
-        case .running: return state.isProxying ? Theme.active : .secondary
+        case .running:
+            if state.needsCoreRestart { return Theme.warning }
+            return state.isProxying ? Theme.active : .secondary
         case .starting: return Theme.warning
         case .stopped: return .secondary
         case .failed: return Theme.failure

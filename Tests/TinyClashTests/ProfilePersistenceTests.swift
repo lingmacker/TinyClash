@@ -523,4 +523,46 @@ final class ProfilePersistenceTests: XCTestCase {
 
         """)
     }
+
+    func testGroupSummariesAndRuleItemsParseBlockAndFlowYAMLForDeferredRestartSync() {
+        let blockYAML = """
+        proxy-groups:
+          - name: Proxy
+            type: select
+            proxies:
+              - 香港
+              - DIRECT
+          - name: 自动
+            type: url-test
+            include-all: true
+        rules:
+          - DOMAIN-SUFFIX,example.com,Proxy
+          - RULE-SET,cncidr,DIRECT,no-resolve
+          - AND,((DOMAIN,a.com),(DST-PORT,443)),REJECT
+          - MATCH,Proxy
+        """
+        XCTAssertEqual(ConfigOverlay.groupSummaries(in: blockYAML), [
+            .init(name: "Proxy", apiType: "Selector", proxies: ["香港", "DIRECT"], includeAll: false),
+            .init(name: "自动", apiType: "URLTest", proxies: [], includeAll: true),
+        ])
+        XCTAssertEqual(ConfigOverlay.ruleItems(in: blockYAML), [
+            RuleItem(index: 0, type: "DomainSuffix", payload: "example.com", proxy: "Proxy"),
+            RuleItem(index: 1, type: "RuleSet", payload: "cncidr", proxy: "DIRECT"),
+            RuleItem(index: 2, type: "AND", payload: "((DOMAIN,a.com),(DST-PORT,443))", proxy: "REJECT"),
+            RuleItem(index: 3, type: "Match", payload: "", proxy: "Proxy"),
+        ])
+
+        let flowYAML = """
+        proxy-groups: [{name: Existing, type: select, proxies: [DIRECT]}, {"name":"Auto","type":"fallback","proxies":["Existing"]}]
+        rules: ["DOMAIN,a.test,Existing", 'MATCH,DIRECT']
+        """
+        XCTAssertEqual(ConfigOverlay.groupSummaries(in: flowYAML), [
+            .init(name: "Existing", apiType: "Selector", proxies: ["DIRECT"], includeAll: false),
+            .init(name: "Auto", apiType: "Fallback", proxies: ["Existing"], includeAll: false),
+        ])
+        XCTAssertEqual(ConfigOverlay.ruleItems(in: flowYAML), [
+            RuleItem(index: 0, type: "Domain", payload: "a.test", proxy: "Existing"),
+            RuleItem(index: 1, type: "Match", payload: "", proxy: "DIRECT"),
+        ])
+    }
 }

@@ -109,7 +109,7 @@ The neutral palette separates canvas, panel, and inset fill; adaptive system col
 ### Tertiary
 
 - **Active green** (`NSColor.systemGreen`): traffic takeover status and successful latency readings below 500 ms.
-- **Warning orange** (`NSColor.systemOrange`): starting state and latency from 500 ms up to, but not including, 1000 ms.
+- **Warning orange** (`NSColor.systemOrange`): starting state, pending-restart state (“需重启生效”), and latency from 500 ms up to, but not including, 1000 ms.
 - **Failure red** (`NSColor.systemRed`): core failure, timeout, error notices, and latency of 1000 ms or more.
 
 These native semantic colors deliberately have no fabricated fixed hex tokens or synthesized tonal ramps. The platform resolves their actual values.
@@ -196,7 +196,7 @@ Home uses a native segmented picker for mode selection. Group search uses `TextF
 
 ### Tags and status
 
-`Tag` uses caption2 medium text, tinted foreground, a 12% tinted capsule, and compact padding. `StatusBadge` pairs text with its semantic dot: running and proxying is green “接管中”; running without takeover and stopped are secondary; starting is orange; failure is red. A running core alone does not imply active traffic takeover.
+`Tag` uses caption2 medium text, tinted foreground, a 12% tinted capsule, and compact padding. `StatusBadge` pairs text with its semantic dot: running and proxying is green “接管中”; running with pending YAML edits to rules or strategy groups is an orange clickable “需重启生效” pill that restarts the core on click; running without takeover and stopped are secondary; starting is orange; failure is red. A running core alone does not imply active traffic takeover.
 
 ### Navigation
 
@@ -204,7 +204,7 @@ The five equal-width tabs (首页, 代理, 配置, 规则, 设置) pair SF Symbo
 
 ### Panels and proxy groups
 
-`PanelBackground` supplies the reusable raised card. Group cards contain a semibold group name, a type tag, a secondary current-node label, a latency reading, and a decorative health strip. Clicking a group opens its in-panel detail. The Proxies toolbar keeps “添加策略组” visible even while the core is stopped or in direct mode, provided a profile is selected. Additions, in-place edits (via card context menu or detail header edit icon for non-`GLOBAL` groups, keeping the name read-only and preserving unmanaged YAML keys), and deletions (via card context menu, detail header trash action, or edit page trash action) validate and write standard multi-line YAML to that profile's file; no custom-group manager or badges are shown. Rules are added, edited, and deleted directly from Rules, not Settings. Testing replaces the relevant action with a small progress indicator; do not style it as a completed measurement.
+`PanelBackground` supplies the reusable raised card. Group cards contain a semibold group name, a type tag, a secondary current-node label (or “待重启生效” for newly added groups before restart), a latency reading, and a decorative health strip. Clicking a group opens its in-panel detail, where newly added groups pending restart disable latency testing and manual node switching with an explanatory notice until the core restarts. The Proxies toolbar keeps “添加策略组” visible even while the core is stopped or in direct mode, provided a profile is selected. Additions, in-place edits (via card context menu or detail header edit icon for non-`GLOBAL` groups, keeping the name read-only and preserving unmanaged YAML keys), and deletions (via card context menu, detail header trash action, or edit page trash action) validate and write standard multi-line YAML to that profile's file and defer core restart to the header “需重启生效” action; no custom-group manager or badges are shown. Rules are added, edited, and deleted directly from Rules, not Settings. Testing replaces the relevant action with a small progress indicator; do not style it as a completed measurement.
 
 ### Route ribbon
 
@@ -220,7 +220,7 @@ The Home card pairs blue download and teal upload labels with numeric readouts. 
 
 ### Runtime rules
 
-The Rules tab mirrors Proxies' card-list structure: its toolbar shows the rule count (with a tooltip noting matching order and unexpanded RuleSet references), a refresh action, and a visible “添加规则” action (with no custom-item management menu), and reveals the `.roundedBorder` search field when running with loaded rules. Each rule renders as an individual compact raised card (`RuleCard`, `rounded.tile` corners, `s` vertical stack spacing, `hoverHighlight`, and `PressableStyle`) displaying its single-line API rule type `Tag`, middle-truncated match content, accent-tinted destination policy, and trailing chevron; clicking a card opens an in-panel editor prefilled from the profile YAML (preserving order, inline comments, and extra options, with a header trash action), and a context menu offers edit, copy payload/policy, and direct deletion after `mihomo -t` validation. Search matches type, content, or policy without reordering; `LazyVStack` keeps longer configurations scrollable. Collection references remain references, not invented expanded lists. The page has explicit loading, stopped, empty, no-results, error/retry, and non-rule-mode states; rule creation and editing stay in-panel. Adding or saving returns to the main list after validation and direct YAML persistence. Forms explain the destination file and warn that subscription updates replace local edits.
+The Rules tab mirrors Proxies' card-list structure: its toolbar shows the rule count (with a tooltip noting matching order and unexpanded RuleSet references), a refresh action, and a visible “添加规则” action (with no custom-item management menu), and reveals the `.roundedBorder` search field when running with loaded rules. Each rule renders as an individual compact raised card (`RuleCard`, `rounded.tile` corners, `s` vertical stack spacing, `hoverHighlight`, and `PressableStyle`) displaying its single-line API rule type `Tag`, middle-truncated match content, accent-tinted destination policy, and trailing chevron; clicking a card opens an in-panel editor prefilled from the profile YAML (preserving order, inline comments, and extra options, with a header trash action), and a context menu offers edit, copy payload/policy, and direct deletion after `mihomo -t` validation. Search matches type, content, or policy without reordering; `LazyVStack` keeps longer configurations scrollable. Collection references remain references, not invented expanded lists. The page has explicit loading, stopped, empty, no-results, error/retry, and non-rule-mode states; rule creation and editing stay in-panel. Adding, saving, or deleting validates and persists directly to YAML without automatically restarting a running core—marking the header badge “需重启生效” and switching the list source to the updated YAML until the user restarts. Forms explain the destination file, note the deferred restart, and warn that subscription updates replace local edits.
 
 ### Inline errors
 

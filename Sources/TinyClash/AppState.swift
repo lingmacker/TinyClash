@@ -65,6 +65,8 @@ final class AppState {
     var updatingProfiles: Set<UUID> = []
     private var editingProfiles: Set<UUID> = []
     private(set) var profileRevision = 0
+    var needsCoreRestart = false
+    var pendingNewGroupNames: Set<String> = []
     var isEditingSelectedProfile: Bool { selectedProfileID.map { editingProfiles.contains($0) } ?? false }
 
     // MARK: Persisted settings
@@ -187,15 +189,18 @@ final class AppState {
             return
         }
         stopStreams()
+        needsCoreRestart = false
+        pendingNewGroupNames = []
         coreState = .starting
         isPrivileged = core.isPrivileged
         do {
             _ = try await core.start(configPath: try effectiveConfigPath(for: profile))
-            coreState = .running
             coreVersion = (try? await api?.version()) ?? coreVersion
             await applyRuntimeOverrides()
-            startStreams()
             await refreshProxies()
+            coreState = .running
+            startStreams()
+            if systemProxyEnabled { await applySystemProxy() }
         } catch {
             coreState = .failed(error.localizedDescription)
             errorMessage = error.localizedDescription
@@ -217,6 +222,8 @@ final class AppState {
         await restoreDNS()
         core.stop()
         coreState = .stopped
+        needsCoreRestart = false
+        pendingNewGroupNames = []
         runtime = nil
         proxies = [:]
         groupNames = []
@@ -228,6 +235,8 @@ final class AppState {
     private func handleCoreCrash(status: Int32, log: String) async {
         guard coreState == .running || coreState == .starting else { return }
         stopStreams()
+        needsCoreRestart = false
+        pendingNewGroupNames = []
         // 内核退出后若保留系统代理会导致断网
         await clearSystemProxy()
         await restoreDNS()
@@ -256,7 +265,6 @@ final class AppState {
             }
         }
         runtime = try? await api.configs()
-        if systemProxyEnabled { await applySystemProxy() }
     }
 
     // MARK: - System proxy
@@ -393,13 +401,16 @@ final class AppState {
         for provider in (try? await api.proxyProviders()) ?? [] {
             for node in provider.proxies ?? [] where all[node.name] == nil { all[node.name] = node }
         }
-        proxies = all
         let order = all["GLOBAL"]?.all ?? []
         var names = order.filter { all[$0]?.isGroup == true && all[$0]?.hidden != true }
         // 补上 GLOBAL.all 中未列出的组
         names += all.values.filter { $0.isGroup && $0.hidden != true && $0.name != "GLOBAL" && !names.contains($0.name) }
             .map(\.name).sorted()
         names.append("GLOBAL")
+        if needsCoreRestart {
+            applyPendingGroupSummaries(into: &all, groupNames: &names)
+        }
+        proxies = all
         groupNames = names
     }
 
@@ -413,7 +424,7 @@ final class AppState {
     }
 
     func select(group: String, proxy: String) async {
-        guard let api else { return }
+        guard let api, !pendingNewGroupNames.contains(group) else { return }
         do {
             try await api.select(group: group, proxy: proxy)
             if closeConnectionsOnSwitch { try? await api.closeAllConnections() }
@@ -465,7 +476,7 @@ final class AppState {
     var isProxying: Bool { isRunning && (systemProxyEnabled || tunEnabled) }
 
     func testGroup(_ group: String) async {
-        guard let api, !testingGroups.contains(group) else { return }
+        guard let api, !testingGroups.contains(group), !pendingNewGroupNames.contains(group) else { return }
         testingGroups.insert(group)
         let url = proxies[group]?.testUrl.flatMap { $0.isEmpty ? nil : $0 } ?? delayTestURL
         _ = try? await api.groupDelay(group: group, url: url, timeout: delayTimeout)
@@ -537,6 +548,11 @@ final class AppState {
     func selectProfile(_ id: UUID) async {
         guard id != selectedProfileID || !isRunning else { return }
         selectedProfileID = id
+        needsCoreRestart = false
+        pendingNewGroupNames = []
+        runtime = nil
+        proxies = [:]
+        groupNames = []
         await restartCore()
     }
 
@@ -652,7 +668,16 @@ final class AppState {
         store.save(profiles)
         if selectedProfileID == id {
             selectedProfileID = profiles.first?.id
-            if selectedProfileID != nil { await restartCore() } else { await stopCore() }
+            needsCoreRestart = false
+            pendingNewGroupNames = []
+            if selectedProfileID != nil {
+                runtime = nil
+                proxies = [:]
+                groupNames = []
+                await restartCore()
+            } else {
+                await stopCore()
+            }
         }
     }
 
@@ -741,6 +766,10 @@ final class AppState {
         }
     }
 
+    func yamlRuleItems() -> [RuleItem] {
+        selectedProfile.map { store.ruleItems(in: $0) } ?? []
+    }
+
     private func applyProfileEdit(_ edit: ProfileStore.ProfileEdit) async throws {
         guard let profile = selectedProfile else { throw ProfileError.missingProfile }
         guard !updatingProfiles.contains(profile.id), !editingProfiles.contains(profile.id) else {
@@ -752,9 +781,75 @@ final class AppState {
         let validated = try await store.prepareEdit(edit, to: profile)
         profiles = try store.commit(validated, profiles: profiles)
         profileRevision &+= 1
-        // A stopped core stays stopped. Switching selection during validation must
-        // not restart a different profile, nor resurrect a core the user stopped.
-        if wasRunning && isRunning && profile.id == selectedProfileID { await restartCore() }
+        // 修改策略组或规则时不立即重启内核，改由顶部状态提示「需重启生效」，方便连续修改后一次性重启
+        if wasRunning && isRunning && profile.id == selectedProfileID {
+            needsCoreRestart = true
+            switch edit {
+            case .addGroup(let group):
+                pendingNewGroupNames.insert(group.name)
+            case .deleteGroup(let name):
+                pendingNewGroupNames.remove(name)
+            case .updateGroup, .addRule, .deleteRule, .updateRule:
+                break
+            }
+            syncPendingGroupsFromYAML()
+        }
+    }
+
+    private func syncPendingGroupsFromYAML() {
+        var updated = proxies
+        var names = groupNames
+        applyPendingGroupSummaries(into: &updated, groupNames: &names)
+        proxies = updated
+        groupNames = names
+    }
+
+    private func applyPendingGroupSummaries(into all: inout [String: ProxyItem], groupNames: inout [String]) {
+        guard needsCoreRestart, let profile = selectedProfile else { return }
+        let summaries = store.groupSummaries(in: profile)
+        let summaryByName = Dictionary(summaries.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+        let existingGroupNames = Set(all.values.filter(\.isGroup).map(\.name))
+
+        for name in existingGroupNames where name != "GLOBAL" && summaryByName[name] == nil {
+            all.removeValue(forKey: name)
+        }
+
+        for summary in summaries {
+            if var existing = all[summary.name], !pendingNewGroupNames.contains(summary.name) {
+                existing.type = summary.apiType
+                if !summary.proxies.isEmpty {
+                    if summary.includeAll {
+                        let existingAll = existing.all ?? []
+                        existing.all = summary.proxies + existingAll.filter { !summary.proxies.contains($0) }
+                    } else {
+                        existing.all = summary.proxies
+                        if let now = existing.now, !summary.proxies.contains(now) {
+                            existing.now = summary.proxies.first
+                        }
+                    }
+                }
+                all[summary.name] = existing
+            } else {
+                all[summary.name] = ProxyItem(
+                    name: summary.name,
+                    type: summary.apiType,
+                    now: nil,
+                    all: summary.proxies
+                )
+            }
+        }
+
+        let hiddenNames = Set(all.values.filter { $0.hidden == true }.map(\.name))
+        var rebuilt = summaries.map(\.name).filter { !hiddenNames.contains($0) }
+        if all["GLOBAL"] != nil, !rebuilt.contains("GLOBAL") {
+            rebuilt.append("GLOBAL")
+        }
+        groupNames = rebuilt
+        if var global = all["GLOBAL"], let globalAll = global.all {
+            let nonGroups = globalAll.filter { !existingGroupNames.contains($0) && summaryByName[$0] == nil }
+            global.all = rebuilt.filter { $0 != "GLOBAL" } + nonGroups
+            all["GLOBAL"] = global
+        }
     }
 
     // MARK: - Misc

@@ -29,10 +29,17 @@ struct ProxiesTab: View {
                 route = .list
             }
         case .list:
-            if let name = openGroup, let group = state.proxies[name] {
-                GroupDetail(group: group, canEdit: canEditGroups, edit: { edit(name) }) { openGroup = nil }
-            } else {
-                overview
+            Group {
+                if let name = openGroup, let group = state.proxies[name] {
+                    GroupDetail(group: group, canEdit: canEditGroups, edit: { edit(name) }) { openGroup = nil }
+                } else {
+                    overview
+                }
+            }
+            .onChange(of: state.groupNames) {
+                if let name = openGroup, state.proxies[name] == nil {
+                    openGroup = nil
+                }
             }
         }
     }
@@ -47,12 +54,12 @@ struct ProxiesTab: View {
                 } label: { Image(systemName: "bolt.fill") }
                     .help("全部测速")
                     .accessibilityLabel("全部测速")
-                    .disabled(!state.isRunning || state.visibleGroups.isEmpty || !state.testingGroups.isEmpty)
+                    .disabled(!state.isRunning || state.visibleGroups.allSatisfy { state.pendingNewGroupNames.contains($0.name) } || !state.testingGroups.isEmpty)
                 Button { route = .add } label: {
                     Label("添加策略组", systemImage: "plus")
                 }
                 .disabled(!canEditGroups)
-                if state.isEditingSelectedProfile {
+                if state.isEditingSelectedProfile || state.coreState == .starting {
                     ProgressView().controlSize(.mini)
                 }
             }
@@ -60,7 +67,17 @@ struct ProxiesTab: View {
             .buttonStyle(.borderless)
             .padding(14)
             Divider()
-            if !state.isRunning {
+            if state.coreState == .starting {
+                if state.currentMode != .direct && !state.visibleGroups.isEmpty {
+                    groupList
+                } else {
+                    VStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("内核启动中…").font(.caption).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            } else if !state.isRunning {
                 EmptyHint(text: state.selectedProfile == nil ? "请先在「配置」页添加并选择配置" : "内核未运行\n仍可添加策略组并写入当前配置")
                     .multilineTextAlignment(.center)
             } else if state.currentMode == .direct {
@@ -132,9 +149,10 @@ private struct GroupCard: View {
                 Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
             }
             HStack(spacing: 6) {
-                Text(group.now ?? "—").font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                let isPending = state.pendingNewGroupNames.contains(group.name)
+                Text(isPending ? "待重启生效" : (group.now ?? "—")).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: 4)
-                if let now = group.now { LatencyLabel(ms: state.delay(of: now)) }
+                if !isPending, let now = group.now { LatencyLabel(ms: state.delay(of: now)) }
             }
             HealthStrip(members: group.all ?? [])
         }
@@ -222,6 +240,7 @@ private struct GroupDetail: View {
                     } else {
                         Button { Task { await state.testGroup(group.name) } } label: { Label("测速", systemImage: "bolt.fill") }
                             .buttonStyle(.borderless)
+                            .disabled(state.pendingNewGroupNames.contains(group.name))
                     }
                 }
             }
@@ -231,7 +250,13 @@ private struct GroupDetail: View {
                     .padding(.horizontal, 14)
                     .padding(.bottom, 8)
             }
-            if !group.isSelectable {
+            if state.pendingNewGroupNames.contains(group.name) {
+                Text("新增策略组尚未加载到内核，点击顶部「需重启生效」重启后即可切换节点与测速")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 6)
+            } else if !group.isSelectable {
                 Text("\(typeTitle(group.type))分组由内核自动选择节点，无法手动切换")
                     .font(.caption).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -256,13 +281,15 @@ private struct NodeRow: View {
     @State private var hovering = false
 
     var body: some View {
-        let selected = group.now == name
+        let isPending = state.pendingNewGroupNames.contains(group.name)
+        let canSelect = group.isSelectable && !isPending
+        let selected = !isPending && group.now == name
         let item = state.proxies[name]
         HStack(spacing: 10) {
             Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 13))
                 .foregroundStyle(selected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary))
-                .opacity(selected || group.isSelectable ? 1 : 0)
+                .opacity(selected || canSelect ? 1 : 0)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 Text(name).font(.callout.weight(selected ? .semibold : .regular)).lineLimit(1)
@@ -287,9 +314,9 @@ private struct NodeRow: View {
                                : AnyShapeStyle(hovering ? Theme.inset : Color.clear))
         )
         .contentShape(Rectangle())
-        .onHover { hovering = $0 && group.isSelectable }
+        .onHover { hovering = $0 && canSelect }
         .onTapGesture {
-            guard group.isSelectable, !selected else { return }
+            guard canSelect, !selected else { return }
             Task { await state.select(group: group.name, proxy: name) }
         }
         .accessibilityAddTraits(selected ? .isSelected : [])

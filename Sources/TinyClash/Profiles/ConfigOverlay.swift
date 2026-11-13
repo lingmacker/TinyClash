@@ -68,6 +68,56 @@ enum ConfigOverlay {
         var proxy: String
     }
 
+    struct GroupSummary: Equatable {
+        var name: String
+        var apiType: String
+        var proxies: [String]
+        var includeAll: Bool
+    }
+
+    static func apiGroupType(_ raw: String) -> String {
+        switch raw.lowercased() {
+        case "select": return "Selector"
+        case "url-test": return "URLTest"
+        case "fallback": return "Fallback"
+        case "load-balance": return "LoadBalance"
+        default: return raw
+        }
+    }
+
+    static func apiRuleType(_ raw: String) -> String {
+        switch normalizeType(raw) {
+        case "domain": return "Domain"
+        case "domainsuffix": return "DomainSuffix"
+        case "domainkeyword": return "DomainKeyword"
+        case "domainregex": return "DomainRegex"
+        case "domainwildcard": return "DomainWildcard"
+        case "geosite": return "GeoSite"
+        case "geoip": return "GeoIP"
+        case "ipcidr": return "IPCIDR"
+        case "ipcidr6": return "IPCIDR6"
+        case "ipasn": return "IPASN"
+        case "srcipcidr": return "SrcIPCIDR"
+        case "srcport": return "SrcPort"
+        case "dstport": return "DstPort"
+        case "inport": return "InPort"
+        case "intype": return "InType"
+        case "inuser": return "InUser"
+        case "inname": return "InName"
+        case "processname": return "Process"
+        case "processpath": return "ProcessPath"
+        case "network": return "Network"
+        case "uid": return "UID"
+        case "ruleset": return "RuleSet"
+        case "and": return "AND"
+        case "or": return "OR"
+        case "not": return "NOT"
+        case "subrule": return "SubRule"
+        case "match", "final": return "Match"
+        default: return raw
+        }
+    }
+
     enum OverlayError: LocalizedError {
         case flowStyle(String)
         case duplicateGroup(String)
@@ -165,6 +215,79 @@ enum ConfigOverlay {
         return parseGroupBody(lines[block.removeStart..<block.contentEnd], dashIndent: block.dashIndent)?.group
     }
 
+    /// 读取配置文件中的策略组摘要列表，用于重启内核前在 UI 中同步最新策略组状态
+    static func groupSummaries(in yaml: String) -> [GroupSummary] {
+        let lines = yaml.components(separatedBy: yaml.contains("\r\n") ? "\r\n" : "\n")
+        guard let keyIndex = topLevelKeyIndex("proxy-groups", in: lines) else { return [] }
+        let (rest, _) = splitComment(String(lines[keyIndex].dropFirst("proxy-groups:".count)))
+        if rest.hasPrefix("["), rest.hasSuffix("]") {
+            let inner = String(rest.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
+            let items = inner.isEmpty ? [] : splitFlowSequence(inner)
+            return items.compactMap(flowGroupSummary)
+        }
+        guard rest.isEmpty else { return [] }
+        let end = sectionEnd(after: keyIndex, in: lines)
+        return parseGroupBlocks(in: lines, range: (keyIndex + 1)..<end).compactMap { block in
+            guard let name = block.name, !name.isEmpty else { return nil }
+            if let g = parseGroupBody(lines[block.removeStart..<block.contentEnd], dashIndent: block.dashIndent)?.group {
+                return GroupSummary(name: g.name, apiType: apiGroupType(g.type), proxies: g.proxies, includeAll: g.includeAll)
+            }
+            return GroupSummary(name: name, apiType: "Selector", proxies: [], includeAll: false)
+        }
+    }
+
+    private static func flowGroupSummary(_ mapping: String) -> GroupSummary? {
+        if let map = jsonMapping(mapping) {
+            let g = groupFields(from: map).group
+            guard !g.name.isEmpty else { return nil }
+            return GroupSummary(name: g.name, apiType: apiGroupType(g.type), proxies: g.proxies, includeAll: g.includeAll)
+        }
+        let trimmed = mapping.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{"), trimmed.hasSuffix("}") else { return nil }
+        let inner = String(trimmed.dropFirst().dropLast())
+        var name = ""
+        var type = "select"
+        var proxies: [String] = []
+        var includeAll = false
+        for pair in splitFlowSequence(inner) {
+            guard let (key, val) = splitFlowPair(pair) else { continue }
+            switch key {
+            case "name": name = unquoteScalar(val)
+            case "type": type = unquoteScalar(val)
+            case "include-all": includeAll = unquoteScalar(val).lowercased() == "true"
+            case "proxies":
+                let v = val.trimmingCharacters(in: .whitespaces)
+                if v.hasPrefix("["), v.hasSuffix("]") {
+                    let seq = String(v.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
+                    proxies = seq.isEmpty ? [] : splitFlowSequence(seq).map(unquoteScalar)
+                }
+            default: break
+            }
+        }
+        guard !name.isEmpty else { return nil }
+        return GroupSummary(name: name, apiType: apiGroupType(type), proxies: proxies, includeAll: includeAll)
+    }
+
+    private static func splitFlowPair(_ pair: String) -> (key: String, value: String)? {
+        var quote: Character?
+        var escaped = false
+        for idx in pair.indices {
+            let c = pair[idx]
+            if escaped { escaped = false; continue }
+            if quote == "\"", c == "\\" { escaped = true; continue }
+            if let q = quote {
+                if c == q { quote = nil }
+            } else if c == "'" || c == "\"" {
+                quote = c
+            } else if c == ":" {
+                let key = unquoteScalar(String(pair[..<idx]))
+                let val = String(pair[pair.index(after: idx)...]).trimmingCharacters(in: .whitespaces)
+                return (key, val)
+            }
+        }
+        return nil
+    }
+
     /// 原位替换策略组：表单管理的字段按标准 YAML 重写，其余字段（use、lazy 等）原样保留
     static func replaceGroup(named name: String, with group: CustomGroup, in yaml: String) throws -> String {
         let newline = yaml.contains("\r\n") ? "\r\n" : "\n"
@@ -222,6 +345,27 @@ enum ConfigOverlay {
         let entries = parseRuleEntries(in: lines, range: (keyIndex + 1)..<sectionEnd(after: keyIndex, in: lines))
         let match = selectRuleMatch(target: target, entries: entries.enumerated().map { ($0.offset, $0.element.parsed) })
         return match.map { entries[$0].text }
+    }
+
+    /// 读取配置文件中的规则列表，用于重启内核前在 UI 中同步最新规则顺序与条目
+    static func ruleItems(in yaml: String) -> [RuleItem] {
+        let lines = yaml.components(separatedBy: yaml.contains("\r\n") ? "\r\n" : "\n")
+        guard let keyIndex = topLevelKeyIndex("rules", in: lines) else { return [] }
+        let (rest, _) = splitComment(String(lines[keyIndex].dropFirst("rules:".count)))
+        let parsedList: [ParsedRule?]
+        if rest.hasPrefix("["), rest.hasSuffix("]") {
+            let inner = String(rest.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
+            parsedList = inner.isEmpty ? [] : splitFlowSequence(inner).map { parseRuleFields(unquoteScalar($0)) }
+        } else if rest.isEmpty {
+            let entries = parseRuleEntries(in: lines, range: (keyIndex + 1)..<sectionEnd(after: keyIndex, in: lines))
+            parsedList = entries.map(\.parsed)
+        } else {
+            return []
+        }
+        return parsedList.enumerated().compactMap { idx, parsed in
+            guard let parsed else { return nil }
+            return RuleItem(index: idx, type: apiRuleType(parsed.rawType), payload: parsed.payload, proxy: parsed.proxy)
+        }
     }
 
     private static func editRule(_ target: RuleTarget, in yaml: String, replacement: String?) throws -> String {
@@ -615,6 +759,7 @@ enum ConfigOverlay {
     // MARK: - Rule Parsing & Matching
 
     private struct ParsedRule {
+        var rawType: String
         var normalizedType: String
         var payload: String
         var proxy: String
@@ -646,10 +791,10 @@ enum ConfigOverlay {
         guard fields.count >= 2 else { return nil }
         let normType = normalizeType(fields[0])
         if normType == "match" || normType == "final" {
-            return ParsedRule(normalizedType: normType, payload: "", proxy: fields[1])
+            return ParsedRule(rawType: fields[0], normalizedType: normType, payload: "", proxy: fields[1])
         }
         guard fields.count >= 3 else { return nil }
-        return ParsedRule(normalizedType: normType, payload: fields[1], proxy: fields[2])
+        return ParsedRule(rawType: fields[0], normalizedType: normType, payload: fields[1], proxy: fields[2])
     }
 
     private static func selectRuleMatch<ID>(target: RuleTarget, entries: [(ID, ParsedRule?)]) -> ID? {
