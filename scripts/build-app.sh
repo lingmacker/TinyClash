@@ -8,8 +8,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$ROOT/build/TinyClash.app"
 CACHE="$ROOT/build/cache"
-VERSION="1.0.0"
-ARCH="$(uname -m)"
+VERSION="${VERSION:-1.0.0}"
+ARCH="${TARGET_ARCH:-$(uname -m)}"
 case "$ARCH" in
   arm64) CORE_ARCH="darwin-arm64" ;;
   x86_64) CORE_ARCH="darwin-amd64-v3" ;;
@@ -18,14 +18,15 @@ esac
 
 cd "$ROOT"
 PREVIEW_BUILD="${TINYCLASH_PREVIEW:-0}"
+ARCH_FLAGS=(--arch "$ARCH")
 if [[ "$PREVIEW_BUILD" == "1" ]]; then
-  echo "==> 编译 Swift (preview)"
-  swift build -c debug -Xswiftc -D -Xswiftc TINYCLASH_PREVIEW
-  BIN="$(swift build -c debug --show-bin-path -Xswiftc -D -Xswiftc TINYCLASH_PREVIEW)/TinyClash"
+  echo "==> 编译 Swift ($ARCH, preview)"
+  swift build -c debug "${ARCH_FLAGS[@]}" -Xswiftc -D -Xswiftc TINYCLASH_PREVIEW
+  BIN="$(swift build -c debug "${ARCH_FLAGS[@]}" --show-bin-path -Xswiftc -D -Xswiftc TINYCLASH_PREVIEW)/TinyClash"
 else
-  echo "==> 编译 Swift (release)"
-  swift build -c release
-  BIN="$(swift build -c release --show-bin-path)/TinyClash"
+  echo "==> 编译 Swift ($ARCH, release)"
+  swift build -c release "${ARCH_FLAGS[@]}"
+  BIN="$(swift build -c release "${ARCH_FLAGS[@]}" --show-bin-path)/TinyClash"
 fi
 
 
@@ -53,7 +54,11 @@ else
     chmod +x "$CORE"
   fi
 fi
-"$CORE" -v
+if [[ "$ARCH" == "$(uname -m)" ]]; then
+  "$CORE" -v
+else
+  file "$CORE"
+fi
 
 echo "==> 准备 Geo 数据库"
 # 内置 Geo 数据库，避免首次启动 / 校验配置时直连 GitHub 下载失败
@@ -104,16 +109,29 @@ cp -R "$GEO_DIR" "$APP/Contents/Resources/geo"
 
 echo "==> 编译图标与资源目录"
 ACTOOL_PLIST="$CACHE/actool-partial-info.plist"
-xcrun actool \
-  --compile "$APP/Contents/Resources" \
-  --platform macosx \
-  --minimum-deployment-target 14.0 \
-  --app-icon AppIcon \
-  --output-partial-info-plist "$ACTOOL_PLIST" \
-  --errors --warnings --notices \
-  --output-format human-readable-text \
-  "$ROOT/Resources/AppIcon.icon" \
-  "$ROOT/Resources/Assets.xcassets"
+XCODE_MAJOR="$(xcodebuild -version 2>/dev/null | awk '/^Xcode /{split($2,a,"."); print a[1]}' || echo 0)"
+if [[ "${XCODE_MAJOR:-0}" -ge 26 && -d "$ROOT/Resources/AppIcon.icon" ]]; then
+  xcrun actool \
+    --compile "$APP/Contents/Resources" \
+    --platform macosx \
+    --minimum-deployment-target 14.0 \
+    --app-icon AppIcon \
+    --output-partial-info-plist "$ACTOOL_PLIST" \
+    --errors --warnings --notices \
+    --output-format human-readable-text \
+    "$ROOT/Resources/AppIcon.icon" \
+    "$ROOT/Resources/Assets.xcassets"
+else
+  xcrun actool \
+    --compile "$APP/Contents/Resources" \
+    --platform macosx \
+    --minimum-deployment-target 14.0 \
+    --output-partial-info-plist "$ACTOOL_PLIST" \
+    --errors --warnings --notices \
+    --output-format human-readable-text \
+    "$ROOT/Resources/Assets.xcassets"
+  [[ -f "$ROOT/Resources/AppIcon.icns" ]] && cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+fi
 
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
