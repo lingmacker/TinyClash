@@ -155,7 +155,10 @@ struct HomeTab: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 9)
             .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
-            .shadow(color: .black.opacity(0.05), radius: 2, y: 1)
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
+                    .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
+            )
             .contentShape(Rectangle())
             .hoverHighlight(cornerRadius: Theme.Radius.tile)
         }

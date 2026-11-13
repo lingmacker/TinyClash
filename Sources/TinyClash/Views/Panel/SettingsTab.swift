@@ -93,7 +93,10 @@ struct SettingsTab: View {
                             Button("重启内核") { Task { await state.restartCore() } }
                             Button("选择内核文件…") { Task { await state.installCoreFromFile() } }
                             Divider()
-                            Button("打开工作目录") { NSWorkspace.shared.open(AppPaths.base) }
+                            Button("打开工作目录") {
+                                AppPaths.ensure()
+                                NSWorkspace.shared.open(AppPaths.base)
+                            }
                             Button("打开内核日志") { NSWorkspace.shared.open(AppPaths.coreLog) }
                         } label: { Image(systemName: "ellipsis.circle") }
                             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
@@ -150,6 +153,10 @@ private struct BypassPage: View {
                     .scrollContentBackground(.hidden)
                     .padding(8)
                     .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
+                            .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
+                    )
                 HStack {
                     Text("每行一个，支持通配符与 CIDR").font(.caption).foregroundStyle(.secondary)
                     Spacer()

@@ -140,7 +140,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
 <dict>
     <key>CFBundleName</key><string>TinyClash</string>
     <key>CFBundleDisplayName</key><string>TinyClash</string>
-    <key>CFBundleIdentifier</key><string>com.tinyclash.app</string>
+    <key>CFBundleIdentifier</key><string>com.lingmacker.tinyclash</string>
     <key>CFBundleExecutable</key><string>TinyClash</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>

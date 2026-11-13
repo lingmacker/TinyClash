@@ -90,7 +90,6 @@ struct MenuPanel: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(width: PanelMetrics.width, height: PanelMetrics.height)
-        .background(Theme.canvas)
         // 窗口打开时 AppKit 会把焦点给第一个输入框并全选文字，这里清掉，避免误输入
         .onAppear(perform: clearFocus)
         .onChange(of: tab) { clearFocus() }
@@ -268,7 +267,10 @@ struct PanelSection<Content: View>: View {
             }
             VStack(spacing: 0) { content }
                 .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.Radius.tile + 2, style: .continuous))
-                .shadow(color: .black.opacity(0.05), radius: 2, y: 1)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.tile + 2, style: .continuous)
+                        .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
+                )
             if let footer {
                 Text(footer).font(.caption2).foregroundStyle(.secondary).padding(.horizontal, 4)
                     .fixedSize(horizontal: false, vertical: true)

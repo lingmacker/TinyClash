@@ -17,20 +17,19 @@ enum Theme {
         static let xl: CGFloat = 24
     }
 
-    /// 内容区底色：浅色为带一点冷调的浅灰，深色为近黑
-    static let canvas = Color(nsColor: NSColor(name: nil) { a in
-        a.isDark ? NSColor(srgbRed: 0.105, green: 0.108, blue: 0.118, alpha: 1)
-                 : NSColor(srgbRed: 0.945, green: 0.949, blue: 0.961, alpha: 1)
+    /// 卡片面板底色：半透明磨砂，贴合毛玻璃窗口背景
+    static let panel = Color(nsColor: NSColor(name: nil) { a in
+        a.isDark ? NSColor(white: 1, alpha: 0.08) : NSColor(white: 1, alpha: 0.58)
     })
 
-    /// 面板底色：浅色为白，深色比画布亮一级
-    static let panel = Color(nsColor: NSColor(name: nil) { a in
-        a.isDark ? NSColor(srgbRed: 0.165, green: 0.168, blue: 0.180, alpha: 1) : .white
+    /// 半透明卡片的细描边，在浅色或深色桌面背景上保持清晰边界
+    static let panelBorder = Color(nsColor: NSColor(name: nil) { a in
+        a.isDark ? NSColor(white: 1, alpha: 0.10) : NSColor(white: 0, alpha: 0.06)
     })
 
     /// 面板内的次级填充（未选中的磁贴、输入区）
     static let inset = Color(nsColor: NSColor(name: nil) { a in
-        a.isDark ? NSColor(white: 1, alpha: 0.06) : NSColor(white: 0, alpha: 0.04)
+        a.isDark ? NSColor(white: 1, alpha: 0.09) : NSColor(white: 0, alpha: 0.055)
     })
 
     /// 保留系统强调色色相，并确保白色小字的对比度至少为 4.5:1。
@@ -89,7 +88,7 @@ private extension NSAppearance {
     var isDark: Bool { bestMatch(from: [.darkAqua, .aqua]) == .darkAqua }
 }
 
-/// 凸起面板：只用阴影表达层级，不叠加描边
+/// 半透明卡片面板：适配毛玻璃窗口底面，用细描边区分边界
 struct PanelBackground: ViewModifier {
     var padding: CGFloat = Theme.Space.l
 
@@ -98,7 +97,31 @@ struct PanelBackground: ViewModifier {
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous))
-            .shadow(color: .black.opacity(0.06), radius: 3, y: 1)
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous)
+                    .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
+            )
+    }
+}
+
+/// 系统毛玻璃背景（用于独立窗口预览等不自带 NSPopover 底面的场景）
+struct VisualEffectBackground: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .popover
+    var blendingMode: NSVisualEffectView.BlendingMode = .behindWindow
+    var state: NSVisualEffectView.State = .active
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = blendingMode
+        view.state = state
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.material = material
+        view.blendingMode = blendingMode
+        view.state = state
     }
 }
 

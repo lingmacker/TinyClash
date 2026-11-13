@@ -3,7 +3,7 @@ import Foundation
 enum AppPaths {
     static let base: URL = {
         let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("com.tinyclash.app", isDirectory: true)
+            .appendingPathComponent("com.lingmacker.tinyclash", isDirectory: true)
         return url
     }()
     /// mihomo 的工作目录（-d），provider、cache.db、geo 数据都放在这里

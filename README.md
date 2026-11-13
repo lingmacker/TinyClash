@@ -47,4 +47,4 @@ open build/TinyClash.app --args -uiPanelPreview YES   # 在普通窗口中显示
 
 ## 数据目录
 
-`~/Library/Application Support/com.tinyclash.app/`：`core/mihomo`（内核）、`mihomo/`（内核工作目录）、`profiles/`、`runtime/`、`logs/core.log`
+`~/Library/Application Support/com.lingmacker.tinyclash/`：`core/mihomo`（内核）、`mihomo/`（内核工作目录）、`profiles/`、`runtime/`、`logs/core.log`
