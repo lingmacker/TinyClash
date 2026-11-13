@@ -2,23 +2,98 @@ import SwiftUI
 
 /// TinyClash 品牌几何标志：阶跃流柱（三枚斜切胶囊 + 脉冲节点）
 struct TinyClashMark: Shape {
-    func path(in rect: CGRect) -> Path {
+    private static func transform(in rect: CGRect) -> CGAffineTransform {
         let s = min(rect.width, rect.height)
-        let cx = rect.midX
-        let cy = rect.midY
         let scale = s / 1024.0 * 1.34
         let rad = -24.0 * CGFloat.pi / 180.0
-        let transform = CGAffineTransform(translationX: cx, y: cy)
+        return CGAffineTransform(translationX: rect.midX, y: rect.midY)
             .rotated(by: rad)
             .scaledBy(x: scale, y: scale)
             .translatedBy(x: -512, y: -512)
+    }
 
+    static func secondaryPath(in rect: CGRect) -> Path {
         var p = Path()
-        p.addRoundedRect(in: CGRect(x: 266, y: 346, width: 124, height: 360), cornerSize: CGSize(width: 62, height: 62), transform: transform)
-        p.addRoundedRect(in: CGRect(x: 450, y: 226, width: 124, height: 386), cornerSize: CGSize(width: 62, height: 62), transform: transform)
-        p.addEllipse(in: CGRect(x: 450, y: 692, width: 124, height: 124), transform: transform)
-        p.addRoundedRect(in: CGRect(x: 634, y: 308, width: 124, height: 332), cornerSize: CGSize(width: 62, height: 62), transform: transform)
+        p.addRoundedRect(in: CGRect(x: 266, y: 346, width: 124, height: 360),
+                         cornerSize: CGSize(width: 62, height: 62),
+                         transform: transform(in: rect))
         return p
+    }
+
+    static func primaryPath(in rect: CGRect) -> Path {
+        let t = transform(in: rect)
+        var p = Path()
+        p.addRoundedRect(in: CGRect(x: 450, y: 226, width: 124, height: 386), cornerSize: CGSize(width: 62, height: 62), transform: t)
+        p.addRoundedRect(in: CGRect(x: 634, y: 308, width: 124, height: 332), cornerSize: CGSize(width: 62, height: 62), transform: t)
+        return p
+    }
+
+    static func pulsePath(in rect: CGRect) -> Path {
+        var p = Path()
+        p.addEllipse(in: CGRect(x: 450, y: 692, width: 124, height: 124), transform: transform(in: rect))
+        return p
+    }
+
+    func path(in rect: CGRect) -> Path {
+        var p = Self.secondaryPath(in: rect)
+        p.addPath(Self.primaryPath(in: rect))
+        p.addPath(Self.pulsePath(in: rect))
+        return p
+    }
+}
+
+/// 面板左上角品牌徽章：石墨底 + 银白流柱 + 暖橙脉冲点（未接管时退为柔和磨砂态）
+struct TinyClashBadge: View {
+    var active: Bool
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(
+                    active
+                    ? AnyShapeStyle(LinearGradient(
+                        colors: [Color(red: 0.215, green: 0.220, blue: 0.235),
+                                 Color(red: 0.145, green: 0.149, blue: 0.161)],
+                        startPoint: .top, endPoint: .bottom))
+                    : AnyShapeStyle(Theme.inset)
+                )
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(active ? Color.white.opacity(0.14) : Theme.panelBorder, lineWidth: 0.5)
+            ZStack {
+                TinyClashLayerShape(kind: .secondary)
+                    .fill(active ? AnyShapeStyle(Color(red: 0.76, green: 0.79, blue: 0.84))
+                                 : AnyShapeStyle(.secondary.opacity(0.65)))
+                TinyClashLayerShape(kind: .primary)
+                    .fill(active
+                          ? AnyShapeStyle(LinearGradient(
+                              colors: [Color(red: 0.973, green: 0.969, blue: 0.953),
+                                       Color(red: 0.843, green: 0.863, blue: 0.886)],
+                              startPoint: .topLeading, endPoint: .bottomTrailing))
+                          : AnyShapeStyle(.secondary))
+                TinyClashLayerShape(kind: .pulse)
+                    .fill(active
+                          ? AnyShapeStyle(LinearGradient(
+                              colors: [Color(red: 1.0, green: 0.588, blue: 0.380),
+                                       Color(red: 0.949, green: 0.447, blue: 0.204)],
+                              startPoint: .top, endPoint: .bottom))
+                          : AnyShapeStyle(.tertiary))
+            }
+            .frame(width: 19, height: 19)
+        }
+        .frame(width: 30, height: 30)
+    }
+}
+
+private struct TinyClashLayerShape: Shape {
+    enum Kind { case secondary, primary, pulse }
+    var kind: Kind
+
+    func path(in rect: CGRect) -> Path {
+        switch kind {
+        case .secondary: return TinyClashMark.secondaryPath(in: rect)
+        case .primary: return TinyClashMark.primaryPath(in: rect)
+        case .pulse: return TinyClashMark.pulsePath(in: rect)
+        }
     }
 }
 

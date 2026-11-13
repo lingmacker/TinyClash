@@ -62,15 +62,9 @@ struct HomeTab: View {
                     await state.setTun($0)
                 }
             }
-            Picker("出站模式", selection: Binding(
-                get: { state.currentMode },
-                set: { m in Task { await state.setMode(m) } }
-            )) {
-                ForEach(ProxyMode.allCases) { Text($0.title).tag($0) }
+            ModePicker(selection: state.currentMode, enabled: state.isRunning) { mode in
+                Task { await state.setMode(mode) }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .disabled(!state.isRunning)
 
             switch state.coreState {
             case .running:
@@ -180,6 +174,47 @@ struct HomeTab: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 40)
+    }
+}
+
+private struct ModePicker: View {
+    var selection: ProxyMode
+    var enabled: Bool
+    var onSelect: (ProxyMode) -> Void
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(ProxyMode.allCases) { mode in
+                let selected = mode == selection
+                Button {
+                    guard !selected else { return }
+                    onSelect(mode)
+                } label: {
+                    Text(mode.title)
+                        .font(.callout.weight(selected ? .semibold : .medium))
+                        .foregroundStyle(selected ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 5)
+                        .background(
+                            RoundedRectangle(cornerRadius: Theme.Radius.tile - 2, style: .continuous)
+                                .fill(selected ? AnyShapeStyle(Theme.controlFill) : AnyShapeStyle(.clear))
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.tile - 2, style: .continuous))
+                        .hoverHighlight(cornerRadius: Theme.Radius.tile - 2)
+                }
+                .buttonStyle(PressableStyle())
+                .accessibilityLabel(mode.title)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .background(Theme.inset, in: RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
+                .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
+        )
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.5)
     }
 }
 

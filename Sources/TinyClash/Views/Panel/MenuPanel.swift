@@ -123,14 +123,7 @@ struct MenuPanel: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            TinyClashMark()
-                .frame(width: 17, height: 17)
-                .foregroundStyle(state.isProxying ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
-                .frame(width: 28, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(state.isProxying ? AnyShapeStyle(Theme.controlFill) : AnyShapeStyle(Theme.inset))
-                )
+            TinyClashBadge(active: state.isProxying)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text("TinyClash").font(.headline)
@@ -140,15 +133,6 @@ struct MenuPanel: View {
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: Theme.Space.s)
-            // 首页已有大号速度读数，其他页在这里显示
-            if state.isRunning && tab != .home {
-                VStack(alignment: .trailing, spacing: 1) {
-                    Label(Format.speed(state.downSpeed), systemImage: "arrow.down").foregroundStyle(Theme.download)
-                    Label(Format.speed(state.upSpeed), systemImage: "arrow.up").foregroundStyle(Theme.upload)
-                }
-                .font(Theme.numeral(11, weight: .medium))
-                .labelStyle(TrailingIconLabelStyle())
-            }
         }
     }
 
@@ -173,15 +157,6 @@ struct MenuPanel: View {
                 .accessibilityLabel(t.title)
                 .accessibilityAddTraits(tab == t ? .isSelected : [])
             }
-        }
-    }
-}
-
-private struct TrailingIconLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 3) {
-            configuration.title
-            configuration.icon.font(.system(size: 8, weight: .bold))
         }
     }
 }
