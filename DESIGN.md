@@ -197,7 +197,7 @@ The Profiles footer uses explicit 24 pt-high controls with 8 pt horizontal paddi
 
 ### Tags and status
 
-`Tag` uses caption2 medium text, tinted foreground, a 12% tinted capsule, and compact padding. `StatusBadge` pairs text with its semantic dot: running and proxying is green “接管中”, with an opaque pale-mint background (`#DCEEE2`) and dark-green text/dot (`#145C2F`) in light appearance, and an opaque dark-green background (`#183D26`) with soft-mint text/dot (`#A7E5BA`) in dark appearance, keeping contrast stable in both appearances; running with pending YAML edits to rules or strategy groups is an orange clickable “需重启生效” pill that restarts the core on click; running without takeover and stopped are secondary; starting is orange; failure is red. A running core alone does not imply active traffic takeover.
+`Tag` uses caption2 medium text, tinted foreground, a 12% tinted capsule, and compact padding. `StatusBadge` pairs text with its semantic dot: running and proxying is green “接管中”, with an opaque pale-mint background (`#DCEEE2`) and dark-green text/dot (`#145C2F`) in light appearance, and an opaque dark-green background (`#183D26`) with soft-mint text/dot (`#A7E5BA`) in dark appearance, keeping contrast stable in both appearances; running with pending YAML edits to rules or strategy groups is an orange clickable “需重启生效” pill that restarts the core on click; applying pending changes or restarting shows orange “重启中” (not clickable); quitting shows secondary “关闭中” while the header 退出 action dims and disables; running without takeover and stopped are secondary; starting is orange; failure is red. A running core alone does not imply active traffic takeover.
 
 ### Navigation
 

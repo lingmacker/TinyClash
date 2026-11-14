@@ -198,6 +198,8 @@ struct MenuPanel: View {
             }
             .buttonStyle(PressableStyle())
             .fixedSize()
+            .disabled(state.quitting)
+            .opacity(state.quitting ? 0.5 : 1)
             .keyboardShortcut("q")
             .help("退出 TinyClash（⌘Q）")
             .accessibilityLabel("退出 TinyClash")

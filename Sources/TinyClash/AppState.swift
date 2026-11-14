@@ -80,6 +80,8 @@ final class AppState {
     var needsCoreRestart = false
     /// 正在应用修改或重启内核，顶部状态显示「重启中」
     private(set) var restarting = false
+    /// 正在退出（清理系统代理、DNS 并停止内核），顶部状态显示「关闭中」
+    private(set) var quitting = false
     /// 面板内的确认框（系统 alert 会让菜单栏面板失去焦点并收起，操作随之丢失）
     var confirmation: PanelConfirmation?
     /// 请求打开「添加订阅」页（来自首页空状态或 clash:// 链接），值为预填的订阅链接
@@ -314,6 +316,7 @@ final class AppState {
     }
 
     func shutdown() async {
+        quitting = true
         crashRestartTask?.cancel()
         stopStreams()
         await clearSystemProxy()

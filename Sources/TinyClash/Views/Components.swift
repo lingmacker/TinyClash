@@ -276,7 +276,7 @@ struct StatusBadge: View {
     @Environment(AppState.self) private var state
 
     private var needsRestart: Bool {
-        state.coreState == .running && state.needsCoreRestart && !state.restarting
+        state.coreState == .running && state.needsCoreRestart && !state.restarting && !state.quitting
     }
 
     var body: some View {
@@ -300,10 +300,12 @@ struct StatusBadge: View {
         .foregroundStyle(color)
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
-        .background(state.isProxying && !needsRestart ? Theme.statusActiveFill : color.opacity(0.12), in: Capsule())
+        .background(state.isProxying && !needsRestart && !state.restarting && !state.quitting
+                    ? Theme.statusActiveFill : color.opacity(0.12), in: Capsule())
     }
 
     private var text: String {
+        if state.quitting { return "关闭中" }
         if state.restarting { return "重启中" }
         switch state.coreState {
         case .running:
@@ -316,6 +318,7 @@ struct StatusBadge: View {
     }
 
     private var color: Color {
+        if state.quitting { return .secondary }
         if state.restarting { return Theme.warningText }
         switch state.coreState {
         case .running:
