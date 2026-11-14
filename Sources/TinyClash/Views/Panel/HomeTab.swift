@@ -12,7 +12,7 @@ struct HomeTab: View {
                         emptyState
                     } else {
                         controls
-                        if state.isRunning { traffic }
+                        if state.isRunning { TrafficPanel() }
                         actions
                     }
                 }
@@ -27,7 +27,7 @@ struct HomeTab: View {
         HStack {
             Link("配置文档", destination: URL(string: "https://wiki.metacubex.one/config/")!)
                 .font(.caption)
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(Theme.accentForeground)
             Spacer()
         }
         .padding(.horizontal, 18)
@@ -43,7 +43,7 @@ struct HomeTab: View {
                 ToggleTile(title: "系统代理", icon: "network", isOn: state.systemProxyEnabled, enabled: state.isRunning) {
                     await state.setSystemProxy($0)
                 }
-                ToggleTile(title: "TUN", icon: "shield.lefthalf.filled", isOn: state.tunEnabled, enabled: state.isRunning) {
+                ToggleTile(title: "TUN", icon: "shield.lefthalf.filled", isOn: state.tunActive, enabled: state.isRunning) {
                     await state.setTun($0)
                 }
             }
@@ -80,35 +80,6 @@ struct HomeTab: View {
                     in: RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
     }
 
-    // MARK: - 流量
-
-    private var traffic: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s + 2) {
-            HStack(alignment: .firstTextBaseline) {
-                SpeedReadout(label: "下载", icon: "arrow.down", value: state.downSpeed, tint: Theme.download, size: 20)
-                Spacer()
-                SpeedReadout(label: "上传", icon: "arrow.up", value: state.upSpeed, tint: Theme.upload, size: 20)
-                    .frame(width: 130, alignment: .leading)
-            }
-            TrafficChart(points: state.trafficHistory).frame(height: 72)
-            HStack(spacing: 0) {
-                fact("连接", "\(state.connections.count)")
-                fact("内存", Format.bytes(state.memory))
-                fact("累计", Format.bytes(state.downloadTotal + state.uploadTotal))
-                fact("端口", state.runtime.map { $0.httpPort > 0 ? "\($0.httpPort)" : "—" } ?? "—")
-            }
-        }
-        .panel(padding: 12)
-    }
-
-    private func fact(_ label: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(label).font(.caption2).foregroundStyle(.secondary)
-            Text(value).font(Theme.numeral(12, weight: .medium)).lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
     // MARK: - 快捷操作
 
     private var actions: some View {
@@ -133,11 +104,7 @@ struct HomeTab: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 9)
-            .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
-                    .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
-            )
+            .card()
             .contentShape(Rectangle())
             .hoverHighlight(cornerRadius: Theme.Radius.tile)
         }
@@ -152,13 +119,48 @@ struct HomeTab: View {
                 .frame(width: 38, height: 38)
                 .foregroundStyle(.secondary)
             Text("添加一个配置开始使用").font(.headline)
-            Text("在「配置」中添加订阅链接，或导入 mihomo 官方格式的 YAML 文件")
+            Text("添加订阅链接，或导入 mihomo 官方格式的 YAML 文件")
                 .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            Button("导入配置文件…") { Task { await state.importProfileFromFile() } }
-                .buttonStyle(.borderedProminent)
+            HStack(spacing: Theme.Space.s) {
+                Button("添加订阅…") { state.addSubscriptionRequest = "" }
+                    .buttonStyle(.borderedProminent)
+                Button("导入配置文件…") { Task { await state.importProfileFromFile() } }
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 40)
+    }
+}
+
+/// 流量面板单独成视图：每秒更新的速度、连接数和内存只让这一块重算
+private struct TrafficPanel: View {
+    @Environment(AppState.self) private var state
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s + 2) {
+            HStack(alignment: .firstTextBaseline) {
+                SpeedReadout(label: "下载", icon: "arrow.down", value: state.downSpeed, tint: Theme.download)
+                Spacer()
+                SpeedReadout(label: "上传", icon: "arrow.up", value: state.upSpeed, tint: Theme.upload)
+                    .frame(width: 130, alignment: .leading)
+            }
+            TrafficChart(points: state.trafficHistory).frame(height: 72)
+            HStack(spacing: 0) {
+                fact("连接", "\(state.connections.count)")
+                fact("内存", Format.bytes(state.memory))
+                fact("累计", Format.bytes(state.downloadTotal + state.uploadTotal))
+                fact("端口", state.runtime.map { $0.httpPort > 0 ? "\($0.httpPort)" : "—" } ?? "—")
+            }
+        }
+        .panel(padding: 12)
+    }
+
+    private func fact(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+            Text(value).font(Theme.numeral(12, weight: .medium)).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

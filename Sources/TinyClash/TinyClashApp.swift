@@ -44,5 +44,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
 
+    func application(_ application: NSApplication, open urls: [URL]) {
+        Task { @MainActor in urls.forEach(AppState.shared.handleOpenURL) }
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 }

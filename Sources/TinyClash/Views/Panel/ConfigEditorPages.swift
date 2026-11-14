@@ -3,8 +3,6 @@ import SwiftUI
 // MARK: - 添加规则
 
 struct RuleEditorPage: View {
-    private static let pickerWidth: CGFloat = 190
-
     struct RuleType: Hashable {
         var name: String
         var example: String
@@ -50,6 +48,10 @@ struct RuleEditorPage: View {
     @State private var extras: [String]
     @State private var saving = false
     @State private var error: String?
+    @State private var confirmingDelete = false
+    /// 策略与规则集名称在停核或待重启时要读取解析 YAML，缓存起来，避免每次输入都重读文件
+    @State private var policyNames: [String] = AppState.builtinPolicies
+    @State private var ruleProviderNames: [String] = []
 
     init(editing: Editing? = nil, canEdit: Bool = true, back: @escaping () -> Void) {
         self.editing = editing
@@ -80,13 +82,21 @@ struct RuleEditorPage: View {
     }
 
     private var policyOptions: [String] {
-        state.policyNames.contains(policy) ? state.policyNames : state.policyNames + [policy]
+        policyNames.contains(policy) ? policyNames : policyNames + [policy]
     }
 
     private var hasPayload: Bool { !Self.isMatch(type.name) }
 
-    private var ruleProviderNames: [String] {
-        ((try? state.ruleProviderDefinitions()) ?? []).map(\.name)
+    private struct OptionsKey: Equatable {
+        var revision: Int
+        var groups: [String]
+        var nodeCount: Int
+    }
+
+    private func loadOptions() {
+        policyNames = state.policyNames
+        ruleProviderNames = ((try? state.ruleProviderDefinitions()) ?? []).map(\.name)
+        if type.name == "RULE-SET", payload.isEmpty { payload = ruleProviderNames.first ?? "" }
     }
 
     private var ruleProviderOptions: [String] {
@@ -114,8 +124,8 @@ struct RuleEditorPage: View {
                     ProgressView().controlSize(.small)
                 } else {
                     HStack(spacing: 10) {
-                        if let editing {
-                            Button(role: .destructive) { delete(editing.target) } label: { Image(systemName: "trash") }
+                        if editing != nil {
+                            Button(role: .destructive) { confirmingDelete = true } label: { Image(systemName: "trash") }
                                 .buttonStyle(.borderless)
                                 .help("从配置中删除规则")
                                 .accessibilityLabel("删除规则")
@@ -132,10 +142,10 @@ struct RuleEditorPage: View {
                 VStack(alignment: .leading, spacing: Theme.Space.m) {
                     PanelSection {
                         PanelRow(title: "类型") {
-                            Picker("", selection: $type) {
+                            Picker("类型", selection: $type) {
                                 ForEach(typeOptions, id: \.self) { Text($0.name).tag($0) }
                             }
-                            .labelsHidden().frame(width: Self.pickerWidth)
+                            .panelPicker()
                         }
                         if hasPayload {
                             PanelRow(title: "内容") {
@@ -144,25 +154,25 @@ struct RuleEditorPage: View {
                                         if payload.isEmpty { Text("选择规则集").tag("") }
                                         ForEach(ruleProviderOptions, id: \.self) { Text($0).tag($0) }
                                     }
-                                    .labelsHidden().frame(width: Self.pickerWidth)
+                                    .panelPicker()
                                 } else {
                                     TextField(type.example, text: $payload).textFieldStyle(.plain).multilineTextAlignment(.trailing)
                                 }
                             }
                         }
                         PanelRow(title: "策略", divider: type.noResolve) {
-                            if state.policyNames.count > AppState.builtinPolicies.count {
-                                Picker("", selection: $policy) {
+                            if policyNames.count > AppState.builtinPolicies.count {
+                                Picker("策略", selection: $policy) {
                                     ForEach(policyOptions, id: \.self) { Text($0).tag($0) }
                                 }
-                                .labelsHidden().frame(width: Self.pickerWidth)
+                                .panelPicker()
                             } else {
                                 TextField("DIRECT / 分组名", text: $policy).textFieldStyle(.plain).multilineTextAlignment(.trailing)
                             }
                         }
                         if type.noResolve {
                             PanelRow(title: "no-resolve", divider: false) {
-                                Toggle("", isOn: $noResolve).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                                Toggle("no-resolve", isOn: $noResolve).labelsHidden().toggleStyle(.switch).controlSize(.small)
                             }
                         }
                     }
@@ -183,11 +193,21 @@ struct RuleEditorPage: View {
             }
         }
         .disabled(saving)
+        .onAppear(perform: loadOptions)
+        .onChange(of: OptionsKey(revision: state.profileRevision, groups: state.groupNames, nodeCount: state.proxies.count)) {
+            loadOptions()
+        }
         .onChange(of: type) {
             if !type.noResolve { noResolve = false }
             if type.name == "RULE-SET", !ruleProviderNames.contains(payload) {
                 payload = ruleProviderNames.first ?? ""
             }
+        }
+        .alert("删除这条规则？", isPresented: $confirmingDelete) {
+            Button("取消", role: .cancel) {}
+            Button("删除", role: .destructive) { if let editing { delete(editing.target) } }
+        } message: {
+            Text("\(editing?.original ?? "")\n会从当前配置的 YAML 中删除。")
         }
     }
 
@@ -245,6 +265,10 @@ struct GroupEditorPage: View {
     @State private var search = ""
     @State private var saving = false
     @State private var error: String?
+    @State private var confirmingDelete: String?
+    /// 候选成员与节点名在节点很多时计算量大，只在节点或分组变化时重算
+    @State private var allCandidates: [String] = []
+    @State private var takenNames: Set<String> = []
 
     init(original: CustomGroup? = nil, canEdit: Bool = true, onDeleted: @escaping () -> Void = {}, back: @escaping () -> Void) {
         self.original = original
@@ -259,17 +283,24 @@ struct GroupEditorPage: View {
     }
 
     private var candidates: [String] {
-        let groups = state.groupNames.filter { $0 != "GLOBAL" && $0 != group.name }
-        var all = ["DIRECT", "REJECT"] + groups + state.nodeNames
+        search.isEmpty ? allCandidates : allCandidates.filter { $0.localizedCaseInsensitiveContains(search) }
+    }
+
+    private func loadCandidates() {
+        let nodes = state.nodeNames
+        let groups = state.groupNames.filter { $0 != "GLOBAL" && $0 != original?.name }
+        var all = ["DIRECT", "REJECT"] + groups + nodes
+        var seen = Set(all)
         // 保留配置中已有但当前未加载的成员，便于取消勾选
-        all += (original?.proxies ?? []).filter { !all.contains($0) }
-        return search.isEmpty ? all : all.filter { $0.localizedCaseInsensitiveContains(search) }
+        all += (original?.proxies ?? []).filter { seen.insert($0).inserted }
+        allCandidates = all
+        takenNames = Set(state.groupNames).union(AppState.builtinPolicies).union(nodes)
     }
 
     private var validationMessage: String? {
         let name = group.name.trimmingCharacters(in: .whitespaces)
         if name.isEmpty { return "请输入分组名称" }
-        if original == nil, state.groupNames.contains(name) || AppState.builtinPolicies.contains(name) || state.nodeNames.contains(name) {
+        if original == nil, takenNames.contains(name) {
             return "名称「\(name)」已被分组或节点使用"
         }
         if group.proxies.isEmpty && !group.includeAll { return "请至少选择一个成员，或开启「包含全部节点」" }
@@ -284,7 +315,7 @@ struct GroupEditorPage: View {
                 } else {
                     HStack(spacing: 10) {
                         if let original {
-                            Button(role: .destructive) { delete(original.name) } label: { Image(systemName: "trash") }
+                            Button(role: .destructive) { confirmingDelete = original.name } label: { Image(systemName: "trash") }
                                 .buttonStyle(.borderless)
                                 .help("从配置中删除策略组")
                                 .accessibilityLabel("删除策略组")
@@ -308,10 +339,10 @@ struct GroupEditorPage: View {
                             }
                         }
                         PanelRow(title: "类型", divider: group.isAutoTest) {
-                            Picker("", selection: $group.type) {
+                            Picker("类型", selection: $group.type) {
                                 ForEach(typeOptions, id: \.self) { Text(Self.typeTitles[$0] ?? $0).tag($0) }
                             }
-                            .labelsHidden().fixedSize()
+                            .panelPicker()
                         }
                         if group.isAutoTest {
                             PanelRow(title: "测速地址") {
@@ -325,7 +356,7 @@ struct GroupEditorPage: View {
                     }
                     PanelSection(footer: "包含全部节点会引入所有节点（含订阅集合），配合正则筛选可按地区分组。") {
                         PanelRow(title: "包含全部节点") {
-                            Toggle("", isOn: $group.includeAll).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                            Toggle("包含全部节点", isOn: $group.includeAll).labelsHidden().toggleStyle(.switch).controlSize(.small)
                         }
                         PanelRow(title: "筛选（正则）", divider: false) {
                             TextField("香港|HK", text: $group.filter).textFieldStyle(.plain).multilineTextAlignment(.trailing)
@@ -333,26 +364,30 @@ struct GroupEditorPage: View {
                     }
                     PanelSection(title: "成员（已选 \(group.proxies.count)）") {
                         TextField("搜索", text: $search).textFieldStyle(.plain).padding(.horizontal, 12).frame(height: 34)
+                            .accessibilityLabel("搜索成员")
                         Divider()
                         if state.proxies.isEmpty {
                             Text("内核未运行，无法列出节点").font(.caption).foregroundStyle(.secondary).padding(12)
                         }
-                        ForEach(candidates, id: \.self) { name in
-                            Toggle(isOn: Binding(
-                                get: { group.proxies.contains(name) },
-                                set: { on in
-                                    if on { group.proxies.append(name) } else { group.proxies.removeAll { $0 == name } }
+                        let selected = Set(group.proxies)
+                        LazyVStack(spacing: 0) {
+                            ForEach(candidates, id: \.self) { name in
+                                Toggle(isOn: Binding(
+                                    get: { selected.contains(name) },
+                                    set: { on in
+                                        if on { group.proxies.append(name) } else { group.proxies.removeAll { $0 == name } }
+                                    }
+                                )) {
+                                    HStack {
+                                        Text(name).font(.callout).lineLimit(1).truncationMode(.middle).help(name)
+                                        Spacer()
+                                        Text(state.proxies[name]?.type ?? "").font(.caption2).foregroundStyle(.secondary)
+                                    }
                                 }
-                            )) {
-                                HStack {
-                                    Text(name).font(.callout).lineLimit(1)
-                                    Spacer()
-                                    Text(state.proxies[name]?.type ?? "").font(.caption2).foregroundStyle(.secondary)
-                                }
+                                .toggleStyle(.checkbox)
+                                .padding(.horizontal, 12)
+                                .frame(height: 30)
                             }
-                            .toggleStyle(.checkbox)
-                            .padding(.horizontal, 12)
-                            .frame(height: 30)
                         }
                     }
                     if let msg = error ?? validationMessage {
@@ -365,6 +400,16 @@ struct GroupEditorPage: View {
             }
         }
         .disabled(saving)
+        .onAppear(perform: loadCandidates)
+        .onChange(of: state.groupNames) { loadCandidates() }
+        .onChange(of: state.proxies.count) { loadCandidates() }
+        .alert("删除策略组「\(confirmingDelete ?? "")」？", isPresented: Binding(get: { confirmingDelete != nil },
+                                                                           set: { if !$0 { confirmingDelete = nil } })) {
+            Button("取消", role: .cancel) {}
+            Button("删除", role: .destructive) { if let name = confirmingDelete { delete(name) } }
+        } message: {
+            Text("会从当前配置的 YAML 中删除该策略组；仍被规则或其他策略组引用时不会删除。")
+        }
     }
 
     private func save() {
@@ -412,7 +457,7 @@ struct ConfigWriteNotice: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("直接写入「\(state.selectedProfile?.name ?? "当前配置")」的 YAML 文件。\(placement)保存前用内核校验；内核运行时不会自动重启，可在全部改完后点击顶部「需重启生效」应用更改。")
             if state.selectedProfile?.kind == .remote {
-                Text("订阅更新会覆盖本地修改。").foregroundStyle(Theme.warning)
+                Text("订阅更新会覆盖本地修改：修改后自动更新会暂停，手动更新前会提示并备份。").foregroundStyle(Theme.warning)
             }
         }
         .font(.caption2).foregroundStyle(.secondary)

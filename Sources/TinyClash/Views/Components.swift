@@ -224,12 +224,12 @@ struct StatusBadge: View {
 
     var body: some View {
         if needsRestart {
-            Button { Task { await state.restartCore() } } label: {
+            Button { Task { await state.applyPendingChanges() } } label: {
                 badge.hoverHighlight(cornerRadius: 999)
             }
             .buttonStyle(PressableStyle())
-            .help("配置已修改，点击重启内核以应用更改")
-            .accessibilityLabel("需重启生效，点击重启内核")
+            .help("配置已修改，点击重新加载配置以应用更改；重新加载失败时会重启内核")
+            .accessibilityLabel("需重启生效，点击应用更改")
         } else {
             badge
         }
@@ -275,7 +275,7 @@ struct SpeedReadout: View {
     var icon: String
     var value: Int64
     var tint: Color
-    var size: CGFloat = 26
+    var size: CGFloat = 20
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {

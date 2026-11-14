@@ -7,8 +7,12 @@ struct RulesTab: View {
     @State private var loading = false
     @State private var error: String?
     @State private var requestID = UUID()
+    @State private var deleting: (rule: RuleItem, index: Int)?
 
-    private enum Route { case list, add, edit(RuleEditorPage.Editing), providers }
+    private enum Route {
+        case list, add, edit(RuleEditorPage.Editing), providers
+        var isList: Bool { if case .list = self { return true } else { return false } }
+    }
 
     private var canEditRules: Bool { state.canEditSelectedProfile }
 
@@ -29,17 +33,34 @@ struct RulesTab: View {
     }
 
     var body: some View {
-        switch route {
-        case .list:
+        // 列表常驻，进入编辑页后返回时保留滚动位置，不重新加载
+        ZStack(alignment: .top) {
             ruleList
                 .task(id: loadKey) { await loadRules() }
-        case .add:
-            RuleEditorPage { route = .list }
-        case .edit(let editing):
-            RuleEditorPage(editing: editing, canEdit: canEditRules) { route = .list }
-        case .providers:
-            RuleProvidersPage { route = .list }
-                .id(state.selectedProfileID)
+                .opacity(route.isList ? 1 : 0)
+                .disabled(!route.isList)
+                .accessibilityHidden(!route.isList)
+            switch route {
+            case .list:
+                EmptyView()
+            case .add:
+                RuleEditorPage { route = .list }.background(Theme.canvas)
+            case .edit(let editing):
+                RuleEditorPage(editing: editing, canEdit: canEditRules) { route = .list }.background(Theme.canvas)
+            case .providers:
+                RuleProvidersPage { route = .list }
+                    .id(state.selectedProfileID)
+                    .background(Theme.canvas)
+            }
+        }
+        .alert("删除这条规则？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+            Button("取消", role: .cancel) {}
+            Button("删除", role: .destructive) {
+                guard let target = deleting else { return }
+                Task { await state.deleteRule(target.rule, at: target.index) }
+            }
+        } message: {
+            Text(deleting.map { "\($0.rule.type),\($0.rule.payload),\($0.rule.proxy)\n会从当前配置的 YAML 中删除。" } ?? "")
         }
     }
 
@@ -75,20 +96,12 @@ struct RulesTab: View {
             .padding(14)
             Divider()
             if state.coreState == .starting {
-                VStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("内核启动中…").font(.caption).foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                LoadingHint(text: "内核启动中…")
             } else if !state.isRunning {
                 EmptyHint(text: state.selectedProfile == nil ? "请先在「配置」页添加并选择配置" : "内核未运行\n启动后可查看规则，仍可添加规则并写入当前配置")
                     .multilineTextAlignment(.center)
-            } else if loading {
-                VStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("读取规则中…").font(.caption).foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if loading && rules.isEmpty {
+                LoadingHint(text: "读取规则中…")
             } else if let error {
                 VStack(spacing: 10) {
                     Text("读取规则失败").font(.callout.weight(.semibold))
@@ -121,16 +134,14 @@ struct RulesTab: View {
                                 Button("复制匹配内容") { copy(rule.payload) }.disabled(rule.payload.isEmpty)
                                 Button("复制目标策略") { copy(rule.proxy) }
                                 Divider()
-                                Button("删除规则", role: .destructive) {
-                                    Task { await state.deleteRule(rule, at: index) }
-                                }
-                                .disabled(!canEditRules)
+                                Button("删除规则…", role: .destructive) { deleting = (rule, index) }
+                                    .disabled(!canEditRules)
                             }
                             .accessibilityAction(named: "编辑规则") {
                                 open(rule, at: index)
                             }
                             .accessibilityAction(named: "删除规则") {
-                                if canEditRules { Task { await state.deleteRule(rule, at: index) } }
+                                if canEditRules { deleting = (rule, index) }
                             }
                         }
                     }
@@ -141,8 +152,7 @@ struct RulesTab: View {
     }
 
     private func copy(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        Pasteboard.copy(text)
     }
 
     private func open(_ rule: RuleItem, at index: Int) {
@@ -169,7 +179,7 @@ struct RulesTab: View {
             loading = false
             return
         }
-        rules = []
+        // 刷新时保留旧列表，避免闪回加载状态
         error = nil
         loading = true
         defer { if requestID == id { loading = false } }
@@ -196,14 +206,6 @@ private struct RuleCard: View {
         return rule.type.lowercased() == "match" ? "其他所有流量" : "—"
     }
 
-    private var policyTint: Color {
-        switch rule.proxy.uppercased() {
-        case "DIRECT": return Theme.active
-        case "REJECT", "REJECT-DROP": return Theme.failure
-        default: return Color.accentColor
-        }
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
@@ -225,7 +227,7 @@ private struct RuleCard: View {
                 Spacer(minLength: 8)
                 Text(rule.proxy)
                     .font(.caption.weight(.medium))
-                    .foregroundStyle(policyTint)
+                    .foregroundStyle(Theme.policyTint(rule.proxy))
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .help(rule.proxy)
@@ -234,11 +236,7 @@ private struct RuleCard: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
-                .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
-        )
+        .card()
         .contentShape(Rectangle())
     }
 }

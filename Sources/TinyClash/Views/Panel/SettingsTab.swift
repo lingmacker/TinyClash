@@ -1,3 +1,4 @@
+import ServiceManagement
 import SwiftUI
 
 struct SettingsTab: View {
@@ -18,27 +19,36 @@ struct SettingsTab: View {
             VStack(alignment: .leading, spacing: Theme.Space.l) {
                 PanelSection(title: "通用") {
                     PanelRow(title: "登录时启动") {
-                        Toggle("", isOn: Binding(get: { state.launchAtLogin }, set: { state.launchAtLogin = $0 }))
+                        if state.launchAtLoginNeedsApproval {
+                            Button("去允许…") { SMAppService.openSystemSettingsLoginItems() }
+                                .controlSize(.small)
+                                .help("已注册登录项，需在「系统设置 → 通用 → 登录项」中允许")
+                        }
+                        Toggle("登录时启动", isOn: Binding(get: { state.launchAtLogin }, set: { state.launchAtLogin = $0 }))
                             .labelsHidden().toggleStyle(.switch).controlSize(.small)
                     }
                     PanelRow(title: "菜单栏显示网速") {
-                        Toggle("", isOn: $state.showSpeedInMenuBar).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                        Toggle("菜单栏显示网速", isOn: $state.showSpeedInMenuBar).labelsHidden().toggleStyle(.switch).controlSize(.small)
                     }
                     PanelRow(title: "切换节点时断开旧连接") {
-                        Toggle("", isOn: $state.closeConnectionsOnSwitch).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                        Toggle("切换节点时断开旧连接", isOn: $state.closeConnectionsOnSwitch).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                    }
+                    PanelRow(title: "全局快捷键") {
+                        Toggle("全局快捷键", isOn: $state.globalHotKeysEnabled).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                            .help("⌃⌥⌘S 切换系统代理，⌃⌥⌘T 切换 TUN，⌃⌥⌘M 切换代理模式")
                     }
                     PanelRow(title: "允许局域网连接") {
-                        Toggle("", isOn: Binding(get: { state.runtime?.allowLan ?? false },
+                        Toggle("允许局域网连接", isOn: Binding(get: { state.runtime?.allowLan ?? false },
                                                  set: { v in Task { await state.setAllowLan(v) } }))
                             .labelsHidden().toggleStyle(.switch).controlSize(.small)
                             .disabled(!state.isRunning)
                     }
                     PanelRow(title: "通过代理更新订阅", divider: false) {
-                        Toggle("", isOn: $state.subscriptionViaProxy).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                        Toggle("通过代理更新订阅", isOn: $state.subscriptionViaProxy).labelsHidden().toggleStyle(.switch).controlSize(.small)
                     }
                 }
 
-                PanelSection(title: "TUN", footer: "TUN 需以 root 运行内核：授权会把内核设为 root 所有并加 setuid 位。其余参数沿用配置文件的 tun 字段。") {
+                PanelSection(title: "TUN", footer: "TUN 需以 root 运行内核：授权会把内核设为 root 所有并加 setuid 位。其余参数沿用配置文件的 tun 字段。TUN 开启时修改协议栈或 DNS 会立即重新应用。") {
                     PanelRow(title: "内核授权") {
                         if state.isPrivileged {
                             Text("已授权").font(.callout).foregroundStyle(Theme.active)
@@ -51,24 +61,29 @@ struct SettingsTab: View {
                         }
                     }
                     PanelRow(title: "协议栈") {
-                        Picker("", selection: $state.tunStack) {
+                        Picker("协议栈", selection: $state.tunStack) {
                             Text("跟随配置").tag("")
                             Text("Mixed").tag("mixed")
                             Text("gVisor").tag("gvisor")
                             Text("System").tag("system")
                         }
-                        .labelsHidden().fixedSize()
+                        .panelPicker()
                     }
                     PanelRow(title: "接管系统 DNS", divider: state.tunSetDNS) {
-                        Toggle("", isOn: $state.tunSetDNS).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                        Toggle("接管系统 DNS", isOn: $state.tunSetDNS).labelsHidden().toggleStyle(.switch).controlSize(.small)
                     }
                     if state.tunSetDNS {
                         PanelRow(title: "DNS 服务器", divider: false) {
                             TextField("223.5.5.5", text: $state.tunDNSServer)
                                 .textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                                // 输入完成（回车）后再应用，避免每个字符都改一次系统 DNS
+                                .onSubmit { Task { await state.tunSettingsChanged() } }
                         }
                     }
                 }
+
+                .onChange(of: state.tunStack) { Task { await state.tunSettingsChanged() } }
+                .onChange(of: state.tunSetDNS) { Task { await state.tunSettingsChanged() } }
 
                 PanelSection(title: "系统代理与测速") {
                     NavRow(title: "绕过代理的地址", icon: "arrow.uturn.right", value: "\(state.bypassList.count) 项") { editingBypass = true }
@@ -100,8 +115,9 @@ struct SettingsTab: View {
                             Button("打开内核日志") { NSWorkspace.shared.open(AppPaths.coreLog) }
                         } label: { Image(systemName: "ellipsis.circle") }
                             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                            .help("内核操作").accessibilityLabel("内核操作")
                     }
-                    PanelRow(title: "规则集与代理集合", icon: "shippingbox") {
+                    PanelRow(title: "远程规则集与代理集合", icon: "shippingbox") {
                         Button("全部更新") { Task { await state.updateAllProviders() } }.controlSize(.small)
                             .disabled(!state.isRunning || state.busy)
                     }
@@ -152,11 +168,7 @@ private struct BypassPage: View {
                     .font(.system(.callout, design: .monospaced))
                     .scrollContentBackground(.hidden)
                     .padding(8)
-                    .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
-                            .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
-                    )
+                    .card()
                 HStack {
                     Text("每行一个，支持通配符与 CIDR").font(.caption).foregroundStyle(.secondary)
                     Spacer()

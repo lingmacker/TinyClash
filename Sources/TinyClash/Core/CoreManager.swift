@@ -112,8 +112,8 @@ final class CoreManager: @unchecked Sendable {
 
     // MARK: - Process
 
-    /// 清理上次异常退出遗留的内核进程
-    func killStaleProcess() {
+    /// 清理上次异常退出遗留的内核进程（会等待进程退出，需在后台线程调用）
+    private func killStaleProcess() {
         guard let text = try? String(contentsOf: AppPaths.pidFile, encoding: .utf8),
               let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 0 else { return }
         let comm = Shell.run("/bin/ps", ["-p", "\(pid)", "-o", "comm="]).output
@@ -126,8 +126,8 @@ final class CoreManager: @unchecked Sendable {
     }
 
     func start(configPath: String) async throws -> MihomoAPI {
-        stop()
-        killStaleProcess()
+        await stop()
+        await Task.detached { self.killStaleProcess() }.value
 
         let port = Self.freePort() ?? 19090
         let secret = UUID().uuidString
@@ -150,6 +150,8 @@ final class CoreManager: @unchecked Sendable {
         var env = ProcessInfo.processInfo.environment
         // 内核自身下载 provider 时不应走（可能指向自己的）环境代理
         for key in ["http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"] { env[key] = nil }
+        // 允许通过 PUT /configs 热重载工作目录之外的配置文件（profiles/、runtime/）
+        env["SAFE_PATHS"] = AppPaths.base.path
         p.environment = env
         p.terminationHandler = { [weak self] proc in
             guard let self else { return }
@@ -174,23 +176,27 @@ final class CoreManager: @unchecked Sendable {
             try await Task.sleep(nanoseconds: 100_000_000)
         }
         let tail = Self.tailLog()
-        stop()
+        await stop()
         throw NSError(domain: "TinyClash", code: 1, userInfo: [NSLocalizedDescriptionKey: "内核启动失败\n\(tail)"])
     }
 
-    func stop() {
+    /// 停止内核；等待退出的过程放到后台线程，避免卡住主线程最多 3 秒
+    func stop() async {
         api = nil
         guard let p = process else { return }
         stopping = true
-        if p.isRunning {
-            p.terminate()
-            let deadline = Date().addingTimeInterval(3)
-            while p.isRunning && Date() < deadline { usleep(50_000) }
-            if p.isRunning { kill(p.processIdentifier, SIGKILL) }
-        }
         process = nil
-        try? logHandle?.close()
+        let log = logHandle
         logHandle = nil
+        await Task.detached {
+            if p.isRunning {
+                p.terminate()
+                let deadline = Date().addingTimeInterval(3)
+                while p.isRunning && Date() < deadline { usleep(50_000) }
+                if p.isRunning { kill(p.processIdentifier, SIGKILL) }
+            }
+            try? log?.close()
+        }.value
         try? FileManager.default.removeItem(at: AppPaths.pidFile)
     }
 
@@ -199,8 +205,8 @@ final class CoreManager: @unchecked Sendable {
         return text.split(separator: "\n").suffix(lines).joined(separator: "\n")
     }
 
-    /// Validate with mihomo -t. Legacy import checks tolerate Geo download failures;
-    /// strict checks never accept a timeout, signal, or nonzero exit.
+    /// Validate with mihomo -t. Timeouts and signals always fail; non-strict checks
+    /// (imports and subscription updates) only tolerate Geo download failures.
     static func testConfig(_ path: String, timeout: TimeInterval = 30, strict: Bool = false) async -> ShellResult {
         await Task.detached {
             let p = Process()
@@ -218,12 +224,12 @@ final class CoreManager: @unchecked Sendable {
             timer.cancel()
             let output = String(decoding: data, as: UTF8.self)
             // Even a child that handles SIGTERM and exits zero must not turn a
-            // validation timeout into an accepted official-file replacement.
-            if strict && ProcessInfo.processInfo.systemUptime >= deadline {
+            // validation timeout into an accepted file replacement.
+            if ProcessInfo.processInfo.systemUptime >= deadline {
                 return ShellResult(status: -1, output: "配置校验超时\n" + output)
             }
             if p.terminationReason == .uncaughtSignal {
-                return ShellResult(status: strict ? -1 : 0, output: "配置校验超时或被终止\n" + output)
+                return ShellResult(status: -1, output: "配置校验被终止\n" + output)
             }
             // Imports retain the historical Geo-download exception. Official YAML edits
             // must receive a successful exit from mihomo before replacing the file.

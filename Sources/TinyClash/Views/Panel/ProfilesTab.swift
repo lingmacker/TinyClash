@@ -6,13 +6,26 @@ struct ProfilesTab: View {
     @State private var editing: Profile?
 
     var body: some View {
-        if let p = editing {
-            EditProfilePage(profile: p) { editing = nil }
-        } else if adding {
-            AddSubscriptionPage { adding = false }
-        } else {
-            list
+        Group {
+            if let p = editing {
+                EditProfilePage(profile: p) { editing = nil }
+            } else if adding {
+                AddSubscriptionPage(initialURL: state.addSubscriptionRequest ?? "") {
+                    adding = false
+                    state.addSubscriptionRequest = nil
+                }
+            } else {
+                list
+            }
         }
+        .onAppear(perform: takeAddRequest)
+        .onChange(of: state.addSubscriptionRequest) { takeAddRequest() }
+    }
+
+    private func takeAddRequest() {
+        guard state.addSubscriptionRequest != nil else { return }
+        editing = nil
+        adding = true
     }
 
     private var hasSubscriptions: Bool { state.profiles.contains { $0.kind == .remote } }
@@ -45,11 +58,11 @@ struct ProfilesTab: View {
                 Spacer()
                 Menu {
                     Button("新建空白配置") {
-                        let p = state.createBlankProfile()
-                        NSWorkspace.shared.open(p.fileURL)
+                        if let p = state.createBlankProfile() { NSWorkspace.shared.open(p.fileURL) }
                     }
                     Button("更新全部订阅") { Task { await state.updateAllProfiles() } }
                         .disabled(!hasSubscriptions)
+                        .help("本地修改过的订阅不会被覆盖，需在卡片上单独更新")
                 } label: { ProfileFooterLabel(icon: "ellipsis") }
                     .menuStyle(.button)
                     .buttonStyle(PressableStyle())
@@ -78,7 +91,7 @@ private struct ProfileFooterLabel: View {
         .foregroundStyle(prominent ? AnyShapeStyle(Theme.accentForeground) : AnyShapeStyle(.primary))
         .padding(.horizontal, 8)
         .frame(height: 24)
-        .background(prominent ? Theme.controlFill : Color(nsColor: .controlBackgroundColor),
+        .background(prominent ? Theme.controlFill : Theme.panel,
                     in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
@@ -92,6 +105,10 @@ private struct ProfileCard: View {
     @Environment(AppState.self) private var state
     let profile: Profile
     var onEdit: () -> Void
+    @State private var confirmingDelete = false
+    @State private var confirmingOverwrite = false
+
+    private var locallyModified: Bool { state.isLocallyModified(profile.id) }
 
     var body: some View {
         let selected = state.selectedProfileID == profile.id
@@ -104,11 +121,17 @@ private struct ProfileCard: View {
                     HStack(spacing: 6) {
                         Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                             .foregroundStyle(selected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary))
-                        Text(profile.name).font(.callout.weight(.semibold)).lineLimit(1)
+                        Text(profile.name).font(.callout.weight(.semibold)).lineLimit(1).truncationMode(.middle)
                         Tag(text: profile.kind == .remote ? "订阅" : "本地")
+                        if locallyModified {
+                            Tag(text: "本地已修改", tint: Theme.warning)
+                                .help("此订阅在本地改过，已暂停自动更新；手动更新会覆盖修改（覆盖前自动备份）")
+                        }
                     }
                     HStack(spacing: Theme.Space.s) {
-                        Text("更新于 \(Format.relative(profile.updatedAt))")
+                        TimelineView(.periodic(from: .now, by: 60)) { context in
+                            Text("更新于 \(Format.updateAge(profile.updatedAt, now: context.date))")
+                        }
                         if let exp = profile.subscription?.expire {
                             Text("到期 \(exp.formatted(date: .numeric, time: .omitted))")
                                 .foregroundStyle(exp.timeIntervalSinceNow < 7 * 86400 ? Theme.warning : .secondary)
@@ -118,6 +141,12 @@ private struct ProfileCard: View {
                     .padding(.leading, 22)
                     if let sub = profile.subscription, sub.total > 0 {
                         usageBar(sub).padding(.leading, 22)
+                    }
+                    if let message = state.profileUpdateErrors[profile.id] {
+                        Label("自动更新失败：\(message)", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption2).foregroundStyle(Theme.failure).lineLimit(2)
+                            .padding(.leading, 22)
+                            .help(message)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -130,11 +159,27 @@ private struct ProfileCard: View {
                 if state.updatingProfiles.contains(profile.id) || state.updatingProfileNodes.contains(profile.id) {
                     ProgressView().controlSize(.mini)
                 } else if profile.kind == .remote {
-                    Button { Task { await state.updateProfile(profile.id) } } label: { Image(systemName: "arrow.clockwise") }
-                        .buttonStyle(.borderless).help("更新订阅")
+                    Button {
+                        if locallyModified { confirmingOverwrite = true } else { Task { await state.updateProfile(profile.id) } }
+                    } label: { Image(systemName: "arrow.clockwise") }
+                        .buttonStyle(.borderless).help("更新订阅").accessibilityLabel("更新订阅")
                 }
                 menu
             }
+        }
+        .alert("删除配置「\(profile.name)」？", isPresented: $confirmingDelete) {
+            Button("取消", role: .cancel) {}
+            Button("删除", role: .destructive) { Task { await state.deleteProfile(profile.id) } }
+        } message: {
+            Text(state.selectedProfileID == profile.id
+                 ? "会删除配置文件，并切换到其他配置重启内核。删除前会在 backups 目录保留一份备份。"
+                 : "会删除配置文件。删除前会在 backups 目录保留一份备份。")
+        }
+        .alert("覆盖本地修改？", isPresented: $confirmingOverwrite) {
+            Button("取消", role: .cancel) {}
+            Button("更新并覆盖", role: .destructive) { Task { await state.updateProfile(profile.id) } }
+        } message: {
+            Text("「\(profile.name)」在本地改过，更新订阅会用下载内容覆盖这些修改。覆盖前会在 backups 目录保留一份备份。")
         }
         .panel(padding: 12)
         .overlay(
@@ -160,20 +205,19 @@ private struct ProfileCard: View {
             Button("编辑信息…", action: onEdit)
             Button("在 Finder 中显示") { NSWorkspace.shared.activateFileViewerSelecting([profile.fileURL]) }
             if let url = profile.url {
-                Button("复制订阅链接") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(url, forType: .string)
-                }
+                Button("复制订阅链接") { Pasteboard.copy(url) }
             }
             if let home = profile.homepage, let u = URL(string: home) {
                 Button("打开订阅主页") { NSWorkspace.shared.open(u) }
             }
             Divider()
-            Button("删除", role: .destructive) { Task { await state.deleteProfile(profile.id) } }
+            Button("删除…", role: .destructive) { confirmingDelete = true }
         } label: { Image(systemName: "ellipsis.circle") }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
+            .help("更多操作")
+            .accessibilityLabel("「\(profile.name)」的更多操作")
     }
 
     private func usageBar(_ sub: SubscriptionInfo) -> some View {
@@ -197,7 +241,12 @@ private struct ProfileCard: View {
 private struct AddSubscriptionPage: View {
     @Environment(AppState.self) private var state
     var back: () -> Void
-    @State private var url = ""
+    @State private var url: String
+
+    init(initialURL: String, back: @escaping () -> Void) {
+        _url = State(initialValue: initialURL)
+        self.back = back
+    }
     @State private var name = ""
     @State private var loading = false
     @State private var error: String?

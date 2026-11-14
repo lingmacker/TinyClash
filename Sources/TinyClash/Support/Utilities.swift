@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 enum AppPaths {
@@ -18,6 +19,8 @@ enum AppPaths {
     static let logsDir = base.appendingPathComponent("logs", isDirectory: true)
     static let coreLog = logsDir.appendingPathComponent("core.log")
     static let pidFile = base.appendingPathComponent("core.pid")
+    /// 订阅覆盖前的本地备份
+    static let backups = base.appendingPathComponent("backups", isDirectory: true)
 
     static func ensure() {
         for dir in [base, home, profiles, runtime, coreDir, logsDir] {
@@ -63,6 +66,13 @@ enum Shell {
 
     static func quote(_ s: String) -> String {
         "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+enum Pasteboard {
+    static func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 }
 

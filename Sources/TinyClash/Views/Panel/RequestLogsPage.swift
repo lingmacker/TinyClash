@@ -6,8 +6,9 @@ struct RequestLogsPage: View {
     @State private var search = ""
     @State private var selectedID: String?
 
-    private var entries: [RequestLogEntry] {
-        state.requestLog.entries.filter { $0.matches(search) }
+    private func filteredEntries() -> [RequestLogEntry] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        return query.isEmpty ? state.requestLog.entries : state.requestLog.entries.filter { $0.matches(query) }
     }
 
     private var isLive: Bool {
@@ -30,7 +31,9 @@ struct RequestLogsPage: View {
     }
 
     private var logList: some View {
-        VStack(spacing: 0) {
+        // 连接数据每秒更新，过滤结果在一次 body 里只算一遍
+        let entries = filteredEntries()
+        return VStack(spacing: 0) {
             SubpageHeader(title: "请求日志", back: back) {
                 Button("清空") { state.clearRequestLog() }
                     .buttonStyle(.borderless)
@@ -86,11 +89,7 @@ struct RequestLogsPage: View {
         if !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             EmptyHint(text: "没有匹配的请求记录")
         } else if state.coreState == .starting || (state.isRunning && !state.hasConnectionSnapshot && state.connectionStreamError == nil) {
-            VStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("等待内核连接数据…").font(.caption).foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            LoadingHint(text: "等待内核连接数据…")
         } else {
             EmptyHint(text: state.isRunning ? "暂无请求记录\n请通过 TinyClash 访问网站后查看" : "内核未运行\n启动后可记录请求经过的策略")
                 .multilineTextAlignment(.center)
@@ -98,8 +97,7 @@ struct RequestLogsPage: View {
     }
 
     private func copy(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        Pasteboard.copy(text)
     }
 }
 
@@ -118,7 +116,7 @@ private struct RequestLogCard: View {
             }
             HStack(spacing: 6) {
                 Tag(text: entry.connection.metadata.network.uppercased(), cornerRadius: 4)
-                Text(entry.policy).foregroundStyle(policyTint)
+                Text(entry.policy).foregroundStyle(Theme.policyTint(entry.policy))
                     .font(.caption.weight(.medium)).lineLimit(1).truncationMode(.middle)
                 if let node = entry.node, node != entry.policy {
                     Image(systemName: "chevron.right").font(.system(size: 8, weight: .semibold))
@@ -140,22 +138,10 @@ private struct RequestLogCard: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
-                .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
-        )
+        .card()
         .contentShape(Rectangle())
     }
 
-    private var policyTint: Color {
-        switch entry.policy.uppercased() {
-        case "DIRECT": return Theme.active
-        case "REJECT", "REJECT-DROP": return Theme.failure
-        case "未知策略": return .secondary
-        default: return Theme.accentForeground
-        }
-    }
 }
 
 private struct RequestLogDetailPage: View {

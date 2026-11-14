@@ -1,7 +1,9 @@
 import AppKit
 import Foundation
+import Network
 import Observation
 import ServiceManagement
+import UserNotifications
 
 enum CoreState: Equatable {
     case stopped, starting, running, failed(String)
@@ -68,9 +70,16 @@ final class AppState {
     var updatingProfiles: Set<UUID> = []
     var updatingProfileNodes: Set<UUID> = []
     var updatingRuleProviders: Set<String> = []
+    /// 后台自动更新失败的原因，显示在配置卡片上，不占用全局错误横幅
+    var profileUpdateErrors: [UUID: String] = [:]
+    /// 订阅文件与最近一次下载内容不同（在 App 内或外部编辑过），暂停自动更新
+    private(set) var locallyModifiedProfiles: Set<UUID> = []
+    private(set) var launchAtLoginStatus = SMAppService.mainApp.status
     private var editingProfiles: Set<UUID> = []
     private(set) var profileRevision = 0
     var needsCoreRestart = false
+    /// 请求打开「添加订阅」页（来自首页空状态或 clash:// 链接），值为预填的订阅链接
+    var addSubscriptionRequest: String?
     var pendingNewGroupNames: Set<String> = []
     var isEditingSelectedProfile: Bool { selectedProfileID.map { editingProfiles.contains($0) } ?? false }
     var canEditSelectedProfile: Bool {
@@ -110,6 +119,12 @@ final class AppState {
     var showSpeedInMenuBar: Bool { didSet { defaults.set(showSpeedInMenuBar, forKey: "showSpeed") } }
     var closeConnectionsOnSwitch: Bool { didSet { defaults.set(closeConnectionsOnSwitch, forKey: "closeConnOnSwitch") } }
     var subscriptionViaProxy: Bool { didSet { defaults.set(subscriptionViaProxy, forKey: "subViaProxy") } }
+    var globalHotKeysEnabled: Bool {
+        didSet {
+            defaults.set(globalHotKeysEnabled, forKey: "globalHotKeys")
+            updateGlobalHotKeys()
+        }
+    }
 
     // MARK: Internals
 
@@ -120,10 +135,18 @@ final class AppState {
     private var trafficCounter = 0
     private var autoUpdateTimer: Timer?
     private var proxyRefreshTask: Task<Void, Never>?
+    private var autoUpdateFailures: [UUID: (count: Int, at: Date)] = [:]
+    private var crashRestarts = 0
+    private var coreStartedAt: Date?
+    private var crashRestartTask: Task<Void, Never>?
+    private var pathMonitor: NWPathMonitor?
+    private var networkChangeTask: Task<Void, Never>?
 
     var api: MihomoAPI? { core.api }
     var isRunning: Bool { coreState == .running }
     var selectedProfile: Profile? { profiles.first { $0.id == selectedProfileID } }
+    /// TUN 开关显示内核的实际状态：配置文件自身开启 TUN 时也如实显示
+    var tunActive: Bool { isRunning ? (runtime?.tun?.enable ?? tunEnabled) : tunEnabled }
     var currentMode: ProxyMode { ProxyMode(rawValue: runtime?.mode.lowercased() ?? "rule") ?? .rule }
     var bypassList: [String] {
         bypassText.split(whereSeparator: { $0 == "\n" || $0 == "," }).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
@@ -146,6 +169,7 @@ final class AppState {
         showSpeedInMenuBar = d.object(forKey: "showSpeed") as? Bool ?? true
         closeConnectionsOnSwitch = d.object(forKey: "closeConnOnSwitch") as? Bool ?? true
         subscriptionViaProxy = d.bool(forKey: "subViaProxy")
+        globalHotKeysEnabled = d.bool(forKey: "globalHotKeys")
 
         core.onUnexpectedExit = { [weak self] status, tail in
             Task { @MainActor in await self?.handleCoreCrash(status: status, log: tail) }
@@ -156,31 +180,129 @@ final class AppState {
 
     func bootstrap() async {
         AppPaths.ensure()
-        do {
-            try core.installBundledCoreIfNeeded()
-        } catch {
-            errorMessage = "安装内核失败：\(error.localizedDescription)"
-        }
-        core.installBundledGeoIfNeeded()
-        core.installBundledWebUIIfNeeded()
+        // 复制内核、读取版本都会启动子进程，放到后台避免启动时卡住菜单栏
+        let core = core
+        let (installError, version) = await Task.detached { () -> (String?, String) in
+            var installError: String?
+            do { try core.installBundledCoreIfNeeded() } catch { installError = error.localizedDescription }
+            core.installBundledGeoIfNeeded()
+            core.installBundledWebUIIfNeeded()
+            return (installError, CoreManager.version(of: AppPaths.coreBinary) ?? "")
+        }.value
+        if let installError { errorMessage = "安装内核失败：\(installError)" }
         isPrivileged = core.isPrivileged
-        coreVersion = CoreManager.version(of: AppPaths.coreBinary) ?? ""
+        coreVersion = version
         await recoverFromPreviousCrash()
 
         profiles = store.reconcileFileNames(store.load())
+        refreshLocalModifications()
         if selectedProfile == nil { selectedProfileID = profiles.first?.id }
         if selectedProfile != nil { await startCore() }
 
         autoUpdateTimer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.autoUpdateProfiles() }
         }
+        observeSystemEvents()
+        updateGlobalHotKeys()
         Task { await autoUpdateProfiles() }
+    }
+
+    private func updateGlobalHotKeys() {
+        guard globalHotKeysEnabled else { return GlobalHotKeys.unregister() }
+        GlobalHotKeys.register { action in
+            Task { @MainActor in await AppState.shared.perform(action) }
+        }
+    }
+
+    private func perform(_ action: GlobalHotKeys.Action) async {
+        guard isRunning else { return }
+        switch action {
+        case .toggleSystemProxy: await setSystemProxy(!systemProxyEnabled)
+        case .toggleTun: await setTun(!tunActive)
+        case .cycleMode:
+            let all = ProxyMode.allCases
+            await setMode(all[(all.firstIndex(of: currentMode)! + 1) % all.count])
+        }
+    }
+
+    /// 处理 `clash://install-config?url=...`（及 `mihomo://`）：预填「添加订阅」页，由用户确认后再下载
+    func handleOpenURL(_ url: URL) {
+        guard ["clash", "mihomo", "clash-meta"].contains(url.scheme?.lowercased() ?? ""),
+              url.host?.lowercased() == "install-config",
+              let target = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "url" })?.value,
+              let parsed = URL(string: target), ["http", "https"].contains(parsed.scheme?.lowercased() ?? "") else {
+            errorMessage = "无法识别的导入链接：\(url.absoluteString)"
+            return
+        }
+        addSubscriptionRequest = target
+        notify(title: "TinyClash 收到订阅链接", body: "点击菜单栏图标，确认后添加订阅。")
+    }
+
+    /// 睡眠唤醒、网络变化后重新应用系统代理与 DNS，并刷新节点
+    private func observeSystemEvents() {
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
+            Task { @MainActor in AppState.shared.scheduleNetworkResync(after: 3) }
+        }
+        let monitor = NWPathMonitor()
+        var first = true
+        monitor.pathUpdateHandler = { _ in
+            Task { @MainActor in
+                // 启动时的首次回调不是网络变化
+                if first { first = false; return }
+                AppState.shared.scheduleNetworkResync(after: 2)
+            }
+        }
+        monitor.start(queue: DispatchQueue(label: "TinyClash.network"))
+        pathMonitor = monitor
+    }
+
+    /// 网络切换时会连续触发多次回调，合并成一次
+    private func scheduleNetworkResync(after seconds: Double) {
+        networkChangeTask?.cancel()
+        networkChangeTask = Task {
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            await resyncNetwork()
+        }
+    }
+
+    private func resyncNetwork() async {
+        guard isRunning else { return }
+        if systemProxyEnabled, let port = runtime?.httpPort, port > 0 {
+            // 新接入的网卡（USB 网卡、热点）还没有代理设置，补上
+            let status = await SystemProxy.pointingStatus(toPort: port)
+            if !status.other.isEmpty && !status.pointing.isEmpty { await applySystemProxy() }
+        }
+        if tunActive && tunSetDNS { await overrideDNS() }
+        await refreshProxies()
+    }
+
+    /// 面板打开时刷新依赖外部状态的显示：系统代理、本地修改、登录项
+    func panelDidOpen() async {
+        refreshLocalModifications()
+        refreshLaunchAtLoginStatus()
+        await verifySystemProxy()
+    }
+
+    /// 打开面板时核对系统代理：被其他程序或系统设置改掉时如实显示
+    func verifySystemProxy() async {
+        guard isRunning, systemProxyEnabled, let port = runtime?.httpPort, port > 0 else { return }
+        let status = await SystemProxy.pointingStatus(toPort: port)
+        guard isRunning, systemProxyEnabled else { return }
+        if status.pointing.isEmpty {
+            systemProxyEnabled = false
+            defaults.removeObject(forKey: "appliedProxyPort")
+            errorMessage = "系统代理已被系统设置或其他程序修改，已关闭「系统代理」开关"
+        } else if !status.other.isEmpty {
+            await applySystemProxy()
+        }
     }
 
     /// 上次异常退出时可能遗留了系统代理 / DNS 设置
     private func recoverFromPreviousCrash() async {
         let port = defaults.integer(forKey: "appliedProxyPort")
-        if port > 0, SystemProxy.isPointing(toPort: port) {
+        if port > 0, await SystemProxy.isPointing(toPort: port) {
             try? await SystemProxy.disable()
         }
         defaults.removeObject(forKey: "appliedProxyPort")
@@ -188,10 +310,11 @@ final class AppState {
     }
 
     func shutdown() async {
+        crashRestartTask?.cancel()
         stopStreams()
         await clearSystemProxy()
         await restoreDNS()
-        core.stop()
+        await core.stop()
         coreState = .stopped
     }
 
@@ -220,6 +343,7 @@ final class AppState {
             await applyRuntimeOverrides()
             await refreshProxies()
             coreState = .running
+            coreStartedAt = Date()
             startStreams()
             if systemProxyEnabled { await applySystemProxy() }
         } catch {
@@ -231,17 +355,36 @@ final class AppState {
     }
 
     func restartCore() async {
+        crashRestartTask?.cancel()
         await clearSystemProxy()
         await restoreDNS()
-        core.stop()
+        await core.stop()
         await startCore()
     }
 
+    /// 让「需重启生效」的修改生效：优先热重载配置，保留连接与系统代理；失败时再整进程重启
+    func applyPendingChanges() async {
+        guard isRunning, let api, let profile = selectedProfile else { return await restartCore() }
+        let oldPort = runtime?.httpPort
+        do {
+            try await api.reloadConfig(path: try effectiveConfigPath(for: profile))
+        } catch {
+            return await restartCore()
+        }
+        guard self.api === api, isRunning else { return }
+        needsCoreRestart = false
+        pendingNewGroupNames = []
+        await applyRuntimeOverrides()
+        await refreshProxies()
+        if systemProxyEnabled, runtime?.httpPort != oldPort { await applySystemProxy() }
+    }
+
     func stopCore() async {
+        crashRestartTask?.cancel()
         stopStreams()
         await clearSystemProxy()
         await restoreDNS()
-        core.stop()
+        await core.stop()
         coreState = .stopped
         needsCoreRestart = false
         pendingNewGroupNames = []
@@ -253,8 +396,11 @@ final class AppState {
         downSpeed = 0
     }
 
+    private static let crashRestartDelays: [UInt64] = [1, 5, 30]
+
     private func handleCoreCrash(status: Int32, log: String) async {
         guard coreState == .running || coreState == .starting else { return }
+        let wasRunning = coreState == .running
         stopStreams()
         needsCoreRestart = false
         pendingNewGroupNames = []
@@ -263,6 +409,35 @@ final class AppState {
         await restoreDNS()
         coreState = .failed("内核意外退出（\(status)）")
         errorMessage = "内核意外退出（状态码 \(status)）\n\(log)"
+
+        // 启动阶段就退出多半是配置问题，重试无意义；稳定运行一分钟以上再崩溃，重新计数
+        guard wasRunning else { return }
+        if let started = coreStartedAt, Date().timeIntervalSince(started) > 60 { crashRestarts = 0 }
+        guard crashRestarts < Self.crashRestartDelays.count else {
+            notify(title: "TinyClash 内核已停止", body: "内核多次意外退出，已停止自动重启，流量当前不经过代理。")
+            return
+        }
+        let delay = Self.crashRestartDelays[crashRestarts]
+        crashRestarts += 1
+        notify(title: "TinyClash 内核意外退出", body: "已暂时关闭系统代理，\(delay) 秒后自动重启内核。")
+        crashRestartTask = Task {
+            try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
+            guard !Task.isCancelled, case .failed = coreState else { return }
+            await startCore()
+            if isRunning { errorMessage = nil }
+        }
+    }
+
+    /// 系统通知；未打包运行（swift run）时没有 bundle id，直接跳过
+    private func notify(title: String, body: String) {
+        guard Bundle.main.bundleIdentifier != nil else { return }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+        }
     }
 
     /// 应用 App 层面的覆盖项：端口兜底、模式、局域网、TUN、系统代理
@@ -286,6 +461,8 @@ final class AppState {
             }
         }
         runtime = try? await api.configs()
+        // 配置文件自身开启了 TUN：开关如实显示，并按设置接管系统 DNS
+        if !tunEnabled, runtime?.tun?.enable == true, tunSetDNS { await overrideDNS() }
     }
 
     // MARK: - System proxy
@@ -310,13 +487,27 @@ final class AppState {
     private func clearSystemProxy() async {
         let port = defaults.integer(forKey: "appliedProxyPort")
         guard port > 0 else { return }
-        if SystemProxy.isPointing(toPort: port) {
+        if await SystemProxy.isPointing(toPort: port) {
             try? await SystemProxy.disable()
         }
         defaults.removeObject(forKey: "appliedProxyPort")
     }
 
     // MARK: - TUN
+
+    /// 协议栈、DNS 设置变化后，TUN 已开启时立即重新下发
+    func tunSettingsChanged() async {
+        guard isRunning, tunActive else { return }
+        if tunEnabled {
+            await applyTun(false)
+            await applyTun(true)
+            runtime = try? await api?.configs()
+        } else if tunSetDNS {
+            await overrideDNS()
+        } else {
+            await restoreDNS()
+        }
+    }
 
     func setTun(_ on: Bool) async {
         if on && !core.isPrivileged {
@@ -362,7 +553,7 @@ final class AppState {
         let servers = tunDNSServer.split(whereSeparator: { $0 == "," || $0 == " " }).map(String.init)
         guard !servers.isEmpty else { return }
         if defaults.data(forKey: "savedDNS") == nil {
-            let current = SystemProxy.currentDNS()
+            let current = await SystemProxy.currentDNS()
             defaults.set(try? JSONEncoder().encode(current), forKey: "savedDNS")
         }
         do { try await SystemProxy.setDNSAll(servers) } catch { errorMessage = error.localizedDescription }
@@ -371,7 +562,7 @@ final class AppState {
     private func restoreDNS() async {
         guard let data = defaults.data(forKey: "savedDNS"),
               let saved = try? JSONDecoder().decode([String: [String]].self, from: data) else { return }
-        let existing = Set(SystemProxy.services())
+        let existing = Set(await SystemProxy.services())
         try? await SystemProxy.setDNS(saved.filter { existing.contains($0.key) })
         defaults.removeObject(forKey: "savedDNS")
     }
@@ -387,7 +578,7 @@ final class AppState {
     func revokePrivilege() async {
         if tunEnabled { await setTun(false) }
         let wasRunning = isRunning
-        if wasRunning { core.stop() }
+        if wasRunning { await stopCore() }
         let r = await core.revokePrivilege()
         isPrivileged = core.isPrivileged
         if !r.ok && !r.output.contains("-128") { errorMessage = "撤销失败：\(r.output)" }
@@ -463,7 +654,8 @@ final class AppState {
         let order = proxies["GLOBAL"]?.all ?? []
         let isNode = { (n: String) in self.proxies[n].map { !$0.isGroup && !builtin.contains($0.type) } ?? false }
         let ordered = order.filter(isNode)
-        let rest = proxies.keys.filter { isNode($0) && !ordered.contains($0) }.sorted()
+        let orderedSet = Set(ordered)
+        let rest = proxies.keys.filter { isNode($0) && !orderedSet.contains($0) }.sorted()
         return ordered + rest
     }
 
@@ -496,7 +688,7 @@ final class AppState {
     }
 
     /// 是否真的在接管流量（内核运行且开启了系统代理或 TUN）
-    var isProxying: Bool { isRunning && (systemProxyEnabled || tunEnabled) }
+    var isProxying: Bool { isRunning && (systemProxyEnabled || tunActive) }
 
     func testGroup(_ group: String) async {
         guard let api, !testingGroups.contains(group), !pendingNewGroupNames.contains(group) else { return }
@@ -616,6 +808,7 @@ final class AppState {
                               fileName: store.uniqueFileName(for: resolvedName, in: profiles), updatedAt: Date())
         profile.subscription = dl.subscription
         profile.homepage = dl.homepage
+        profile.downloadedHash = ProfileStore.hash(dl.data)
         if let h = dl.updateInterval, h > 0 { profile.updateInterval = h }
         try await store.writeValidated(dl.data, to: profile.fileURL) {
             if self.profiles.contains(where: { $0.fileName.lowercased() == profile.fileName.lowercased() }) {
@@ -643,7 +836,7 @@ final class AppState {
         if selectedProfileID == nil || !isRunning { await selectProfile(profile.id) }
     }
 
-    func createBlankProfile() -> Profile {
+    func createBlankProfile() -> Profile? {
         let name = "新配置"
         let profile = Profile(name: name, kind: .local,
                               fileName: store.uniqueFileName(for: name, in: profiles), updatedAt: Date(), updateInterval: 0)
@@ -676,9 +869,16 @@ final class AppState {
           - MATCH,PROXY
 
         """
-        try? template.write(to: profile.fileURL, atomically: true, encoding: .utf8)
+        do {
+            try template.write(to: profile.fileURL, atomically: true, encoding: .utf8)
+        } catch {
+            errorMessage = "新建配置失败：\(error.localizedDescription)"
+            return nil
+        }
         profiles.append(profile)
         store.save(profiles)
+        // 还没有选中任何配置时直接选中，首页「启动内核」即可使用
+        if selectedProfile == nil { selectedProfileID = profile.id }
         return profile
     }
 
@@ -709,10 +909,20 @@ final class AppState {
         }
     }
 
-    func updateProfile(_ id: UUID) async {
+    func isLocallyModified(_ id: UUID) -> Bool { locallyModifiedProfiles.contains(id) }
+
+    /// 读取文件计算哈希，只在配置变化的时机调用，不放进视图 body
+    func refreshLocalModifications() {
+        locallyModifiedProfiles = Set(profiles.filter { store.isLocallyModified($0) }.map(\.id))
+    }
+
+    /// 下载订阅并覆盖本地文件；覆盖前把当前文件备份到 backups/。
+    /// `background` 为后台自动更新：失败只记在配置卡片上，不弹全局横幅。
+    @discardableResult
+    func updateProfile(_ id: UUID, background: Bool = false) async -> Bool {
         guard let profile = profiles.first(where: { $0.id == id }), let url = profile.url,
               !updatingProfiles.contains(id), !updatingProfileNodes.contains(id),
-              !editingProfiles.contains(id) else { return }
+              !editingProfiles.contains(id) else { return false }
         updatingProfiles.insert(id)
         defer { updatingProfiles.remove(id) }
         do {
@@ -720,24 +930,53 @@ final class AppState {
             guard profiles.first(where: { $0.id == id }) == profile else { throw ProfileError.profileChanged }
             try await store.writeValidated(dl.data, to: profile.fileURL) {
                 guard self.profiles.first(where: { $0.id == id }) == profile else { throw ProfileError.profileChanged }
+                self.store.backup(profile)
             }
-            guard let i = profiles.firstIndex(where: { $0.id == id }) else { return }
+            guard let i = profiles.firstIndex(where: { $0.id == id }) else { return false }
             profiles[i].updatedAt = Date()
+            profiles[i].downloadedHash = ProfileStore.hash(dl.data)
             if let sub = dl.subscription { profiles[i].subscription = sub }
+            if let h = dl.updateInterval, h > 0 { profiles[i].updateInterval = h }
             store.save(profiles)
             profileRevision &+= 1
-            if id == selectedProfileID && isRunning { await restartCore() }
+            profileUpdateErrors[id] = nil
+            autoUpdateFailures[id] = nil
+            locallyModifiedProfiles.remove(id)
+            if id == selectedProfileID && isRunning {
+                // 订阅覆盖了文件，之前未生效的本地修改也随之作废
+                await applyPendingChanges()
+            }
+            return true
         } catch {
-            errorMessage = "更新「\(profile.name)」失败：\(error.localizedDescription)"
+            let message = "更新「\(profile.name)」失败：\(error.localizedDescription)"
+            if background {
+                profileUpdateErrors[id] = error.localizedDescription
+                let failures = (autoUpdateFailures[id]?.count ?? 0) + 1
+                autoUpdateFailures[id] = (failures, Date())
+            } else {
+                errorMessage = message
+            }
+            return false
         }
     }
 
+    /// 「更新全部订阅」跳过本地修改过的配置，避免一次覆盖多份修改
     func updateAllProfiles() async {
-        for p in profiles where p.kind == .remote { await updateProfile(p.id) }
+        for p in profiles where p.kind == .remote && !isLocallyModified(p.id) { await updateProfile(p.id) }
     }
 
+    /// 自动更新跳过本地修改过、有未生效修改的配置；失败后按 1、2、4…小时退避（最长 6 小时）
     private func autoUpdateProfiles() async {
-        for p in profiles where p.needsUpdate { await updateProfile(p.id) }
+        refreshLocalModifications()
+        for p in profiles where p.needsUpdate {
+            if isLocallyModified(p.id) { continue }
+            if p.id == selectedProfileID && needsCoreRestart { continue }
+            if let failure = autoUpdateFailures[p.id] {
+                let backoff = min(3600 * pow(2, Double(failure.count - 1)), 6 * 3600)
+                if Date().timeIntervalSince(failure.at) < backoff { continue }
+            }
+            await updateProfile(p.id, background: true)
+        }
     }
 
     @discardableResult
@@ -759,7 +998,14 @@ final class AppState {
 
     func deleteProfile(_ id: UUID) async {
         guard let p = profiles.first(where: { $0.id == id }) else { return }
+        guard !updatingProfiles.contains(id), !editingProfiles.contains(id), !updatingProfileNodes.contains(id) else {
+            errorMessage = ProfileError.profileBusy.localizedDescription
+            return
+        }
         profiles.removeAll { $0.id == id }
+        profileUpdateErrors[id] = nil
+        locallyModifiedProfiles.remove(id)
+        store.backup(p)
         try? FileManager.default.removeItem(at: p.fileURL)
         try? FileManager.default.removeItem(at: p.runtimeURL)
         store.save(profiles)
@@ -789,7 +1035,8 @@ final class AppState {
             return
         }
         profileRevision &+= 1
-        await restartCore()
+        refreshLocalModifications()
+        if isRunning { await applyPendingChanges() } else { await startCore() }
     }
 
     // MARK: - Official YAML additions / legacy compatibility
@@ -936,6 +1183,7 @@ final class AppState {
         let validated = try await store.prepareEdit(edit, to: profile)
         profiles = try store.commit(validated, profiles: profiles)
         profileRevision &+= 1
+        if profile.kind == .remote, profile.downloadedHash != nil { locallyModifiedProfiles.insert(profile.id) }
         // 修改策略组或规则时不立即重启内核，改由顶部状态提示「需重启生效」，方便连续修改后一次性重启
         if wasRunning && isRunning && profile.id == selectedProfileID {
             needsCoreRestart = true
@@ -1011,12 +1259,23 @@ final class AppState {
     // MARK: - Misc
 
     var launchAtLogin: Bool {
-        get { SMAppService.mainApp.status == .enabled }
+        get { launchAtLoginStatus == .enabled || launchAtLoginStatus == .requiresApproval }
         set {
             do {
                 if newValue { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
             } catch { errorMessage = "设置开机启动失败：\(error.localizedDescription)" }
+            refreshLaunchAtLoginStatus()
+            if launchAtLoginStatus == .requiresApproval {
+                errorMessage = "请在「系统设置 → 通用 → 登录项」中允许 TinyClash 登录时启动"
+                SMAppService.openSystemSettingsLoginItems()
+            }
         }
+    }
+
+    var launchAtLoginNeedsApproval: Bool { launchAtLoginStatus == .requiresApproval }
+
+    func refreshLaunchAtLoginStatus() {
+        launchAtLoginStatus = SMAppService.mainApp.status
     }
 
     func updateGeo() async {
@@ -1026,16 +1285,20 @@ final class AppState {
         do { try await api.updateGeo() } catch { errorMessage = "更新 Geo 数据库失败：\(error.localizedDescription)" }
     }
 
-    /// 更新所有代理集合与规则集合
+    /// 更新所有远程（HTTP）代理集合与规则集合；有未生效的配置修改时内核里的集合已过期，不更新
     func updateAllProviders() async {
-        guard let api else { return }
+        guard let api, !busy else { return }
+        guard !needsCoreRestart else {
+            errorMessage = "配置有未生效的修改，请先点击顶部「需重启生效」"
+            return
+        }
         busy = true
         defer { busy = false }
         var failed: [String] = []
-        for p in (try? await api.proxyProviders()) ?? [] {
+        for p in (try? await api.proxyProviders()) ?? [] where p.vehicleType.caseInsensitiveCompare("HTTP") == .orderedSame {
             do { try await api.updateProxyProvider(p.name) } catch { failed.append(p.name) }
         }
-        for p in (try? await api.ruleProviders()) ?? [] {
+        for p in (try? await api.ruleProviders()) ?? [] where p.isRemoteRuleProvider {
             do { try await api.updateRuleProvider(p.name) } catch { failed.append(p.name) }
         }
         await refreshProxies()
@@ -1083,8 +1346,7 @@ final class AppState {
     }
 
     func copyTerminalCommand() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(terminalProxyCommand, forType: .string)
+        Pasteboard.copy(terminalProxyCommand)
     }
 
     /// 官方 Web 面板 metacubexd，优先由本地内核同源提供，避免浏览器混合内容拦截

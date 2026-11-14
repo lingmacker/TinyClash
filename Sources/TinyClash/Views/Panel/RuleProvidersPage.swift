@@ -151,8 +151,7 @@ struct RuleProvidersPage: View {
                 .disabled(!canUpdate || runtime?.isRemoteRuleProvider != true)
             if !definition.url.isEmpty {
                 Button("复制链接") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(definition.url, forType: .string)
+                    Pasteboard.copy(definition.url)
                 }
             }
         }
@@ -231,11 +230,7 @@ struct RuleProviderCard: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
-                .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
-        )
+        .card()
         .contentShape(Rectangle())
     }
 
@@ -248,8 +243,6 @@ struct RuleProviderCard: View {
 }
 
 struct RuleProviderEditorPage: View {
-    private static let pickerWidth: CGFloat = 140
-
     @Environment(AppState.self) private var state
     var original: RuleProviderDefinition?
     let profileID: UUID
@@ -343,20 +336,20 @@ struct RuleProviderEditorPage: View {
                             Picker("来源", selection: $provider.type) {
                                 ForEach(RuleProviderDefinition.types, id: \.self) { Text(Self.typeTitle($0)).tag($0) }
                             }
-                            .labelsHidden().frame(width: Self.pickerWidth)
+                            .panelPicker()
                         }
                         PanelRow(title: "匹配类型", divider: provider.type != "inline" || original == nil) {
                             Picker("匹配类型", selection: $provider.behavior) {
                                 ForEach(RuleProviderDefinition.behaviors, id: \.self) { Text($0).tag($0) }
                             }
-                            .labelsHidden().frame(width: Self.pickerWidth)
+                            .panelPicker()
                         }
                         if provider.type != "inline" {
                             PanelRow(title: "文件格式", divider: original == nil) {
                                 Picker("文件格式", selection: $provider.format) {
                                     ForEach(RuleProviderDefinition.formats, id: \.self) { Text($0).tag($0) }
                                 }
-                                .labelsHidden().frame(width: Self.pickerWidth)
+                                .panelPicker()
                             }
                         }
                         if original == nil {
@@ -364,7 +357,7 @@ struct RuleProviderEditorPage: View {
                                 Picker("目标策略", selection: $policy) {
                                     ForEach(policyOptions, id: \.self) { Text($0).tag($0) }
                                 }
-                                .labelsHidden().frame(width: Self.pickerWidth)
+                                .panelPicker()
                             }
                         }
                     }

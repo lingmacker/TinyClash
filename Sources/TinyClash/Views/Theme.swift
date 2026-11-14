@@ -6,15 +6,15 @@ enum Theme {
     enum Radius {
         static let panel: CGFloat = 14
         static let tile: CGFloat = 10
+        /// 设置分组（PanelSection），对应 DESIGN.md 的 rounded.section
+        static let section: CGFloat = 12
         static let chip: CGFloat = 6
     }
 
     enum Space {
-        static let xs: CGFloat = 4
         static let s: CGFloat = 8
         static let m: CGFloat = 12
         static let l: CGFloat = 16
-        static let xl: CGFloat = 24
     }
 
     /// 不透明画布，避免桌面颜色透入菜单栏面板。
@@ -72,6 +72,16 @@ enum Theme {
     static let warning = Color(nsColor: .systemOrange)
     static let failure = Color(nsColor: .systemRed)
 
+    /// 策略名的颜色：直连绿、拒绝红、其余用可读的暖橙文字色
+    static func policyTint(_ policy: String) -> Color {
+        switch policy.uppercased() {
+        case "DIRECT": return active
+        case "REJECT", "REJECT-DROP": return failure
+        case "未知策略": return .secondary
+        default: return accentForeground
+        }
+    }
+
     /// 测速是经代理的完整 HTTPS 往返，500ms 以内视为良好
     static func latency(_ ms: Int?) -> Color {
         guard let ms else { return .secondary }
@@ -117,6 +127,15 @@ struct PanelBackground: ViewModifier {
 extension View {
     func panel(padding: CGFloat = Theme.Space.l) -> some View { modifier(PanelBackground(padding: padding)) }
 
+    /// 列表卡片：面板底色 + tile 圆角 + 细描边
+    func card(cornerRadius: CGFloat = Theme.Radius.tile) -> some View {
+        background(Theme.panel, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
+            )
+    }
+
     /// 可点击面板的悬停反馈
     func hoverHighlight(cornerRadius: CGFloat = Theme.Radius.panel) -> some View {
         modifier(HoverHighlight(cornerRadius: cornerRadius))
@@ -152,22 +171,16 @@ struct PressableStyle: ButtonStyle {
     }
 }
 
-/// 面板标题行：标题 + 可选的右侧附属内容
-struct PanelHeader<Accessory: View>: View {
-    var title: String
-    @ViewBuilder var accessory: Accessory
-
+/// 列表区域的加载占位，与 EmptyHint 对应
+struct LoadingHint: View {
+    var text: String
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(title).font(.headline)
-            Spacer(minLength: Theme.Space.s)
-            accessory
+        VStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text(text).font(.caption).foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-}
-
-extension PanelHeader where Accessory == EmptyView {
-    init(title: String) { self.init(title: title) { EmptyView() } }
 }
 
 /// 小标签（类型、来源）

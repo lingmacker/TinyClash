@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 struct SubscriptionInfo: Codable, Equatable {
@@ -13,15 +14,22 @@ struct SubscriptionInfo: Codable, Equatable {
         guard let header else { return nil }
         for part in header.split(separator: ";") {
             let kv = part.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-            guard kv.count == 2, let n = Double(kv[1]) else { continue }
+            guard kv.count == 2, let n = Double(kv[1]), n.isFinite else { continue }
             switch kv[0].lowercased() {
-            case "upload": upload = Int64(n)
-            case "download": download = Int64(n)
-            case "total": total = Int64(n)
-            case "expire": expire = n > 0 ? Date(timeIntervalSince1970: n) : nil
+            case "upload": upload = Self.clamped(n)
+            case "download": download = Self.clamped(n)
+            case "total": total = Self.clamped(n)
+            // 超出 Date 合理范围的到期时间按「无到期」处理
+            case "expire": expire = n > 0 && n < 32_503_680_000 ? Date(timeIntervalSince1970: n) : nil
             default: break
             }
         }
+    }
+
+    /// 部分面板用 Int64.max、1e30 等表示「不限量」，直接转换会越界崩溃
+    static func clamped(_ value: Double) -> Int64 {
+        guard value > 0 else { return 0 }
+        return value >= 9.2e18 ? Int64.max / 4 : Int64(value)
     }
 }
 
@@ -38,6 +46,8 @@ struct Profile: Codable, Identifiable, Equatable {
     var updateInterval: Int = 24
     var subscription: SubscriptionInfo?
     var homepage: String?
+    /// 最近一次下载写入内容的 SHA-256，用于判断订阅是否在本地被修改过
+    var downloadedHash: String?
     /// Legacy profiles.json overlays only. New additions are written to YAML;
     /// these fields are cleared after a validated, successful one-time conversion.
     var customRules: [String]?
@@ -55,7 +65,7 @@ struct Profile: Codable, Identifiable, Equatable {
 
 enum ProfileError: LocalizedError {
     case invalidURL, badStatus(Int), notClashConfig, invalidConfig(String)
-    case missingProfile, profileChanged, profileBusy
+    case missingProfile, profileChanged, profileBusy, missingCore, responseTooLarge
 
     var errorDescription: String? {
         switch self {
@@ -66,12 +76,15 @@ enum ProfileError: LocalizedError {
         case .missingProfile: return "请先选择一个存在的配置"
         case .profileChanged: return "配置在校验期间已变更，请重试"
         case .profileBusy: return "配置正在更新或保存，请稍后重试"
+        case .missingCore: return "未找到 mihomo 内核，无法校验配置"
+        case .responseTooLarge: return "订阅内容过大（超过 20 MB）"
         }
     }
 }
 
 final class ProfileStore {
     static let userAgent = "clash.meta/mihomo TinyClash"
+    static let maxDownloadSize = 20 * 1024 * 1024
 
     private let profilesDirectory: URL
     private let runtimeDirectory: URL
@@ -107,7 +120,7 @@ final class ProfileStore {
     struct ValidatedEdit {
         fileprivate let profile: Profile
         fileprivate let original: Data
-        fileprivate let originalIndex: Data?
+        fileprivate let originalEntry: Profile?
         fileprivate let data: Data
         fileprivate let fileURL: URL
         fileprivate let indexURL: URL
@@ -163,7 +176,7 @@ final class ProfileStore {
         guard FileManager.default.fileExists(atPath: file.path) else { throw ProfileError.missingProfile }
         let original = try Data(contentsOf: file)
         guard let yaml = String(data: original, encoding: .utf8) else { throw ProfileError.notClashConfig }
-        let originalIndex = try indexData()
+        let originalEntry = try indexEntry(for: profile.id)
         // Merge legacy overlays first, then apply the requested edit so additions,
         // deletions, and runtime indices all match the same consolidated YAML.
         let migrated = try ConfigOverlay.apply(rules: profile.customRules ?? [], groups: profile.customGroups ?? [], to: yaml)
@@ -185,7 +198,7 @@ final class ProfileStore {
         defer { try? FileManager.default.removeItem(at: temporary) }
         try await validate(temporary)
         try Task.checkCancellation()
-        return ValidatedEdit(profile: profile, original: original, originalIndex: originalIndex,
+        return ValidatedEdit(profile: profile, original: original, originalEntry: originalEntry,
                              data: data, fileURL: file, indexURL: indexURL)
     }
 
@@ -199,7 +212,8 @@ final class ProfileStore {
               edit.indexURL == indexURL,
               FileManager.default.fileExists(atPath: edit.fileURL.path),
               try Data(contentsOf: edit.fileURL) == edit.original,
-              try indexData() == edit.originalIndex else { throw ProfileError.profileChanged }
+              // 只比较本配置的记录，其他配置同时写入索引不应让本次编辑误报冲突
+              try indexEntry(for: edit.profile.id) == edit.originalEntry else { throw ProfileError.profileChanged }
         try Task.checkCancellation()
         var updated = profiles
         updated[i].customRules = nil
@@ -216,9 +230,33 @@ final class ProfileStore {
         return updated
     }
 
-    private func indexData() throws -> Data? {
+    private func indexEntry(for id: UUID) throws -> Profile? {
         guard FileManager.default.fileExists(atPath: indexURL.path) else { return nil }
-        return try Data(contentsOf: indexURL)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let entries = (try? decoder.decode([Profile].self, from: Data(contentsOf: indexURL))) ?? []
+        return entries.first { $0.id == id }
+    }
+
+    static func hash(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// 订阅文件与最近一次下载的内容不同，说明在 App 内或外部编辑器中改过
+    func isLocallyModified(_ profile: Profile) -> Bool {
+        guard profile.kind == .remote, let expected = profile.downloadedHash,
+              let data = try? Data(contentsOf: profilesDirectory.appendingPathComponent(profile.fileName)) else { return false }
+        return Self.hash(data) != expected
+    }
+
+    /// 覆盖前把当前文件备份到 `backups/`，每个配置只保留最近一份
+    func backup(_ profile: Profile, to directory: URL = AppPaths.backups) {
+        let source = profilesDirectory.appendingPathComponent(profile.fileName)
+        guard FileManager.default.fileExists(atPath: source.path) else { return }
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let target = directory.appendingPathComponent(profile.fileName + ".bak")
+        try? FileManager.default.removeItem(at: target)
+        try? FileManager.default.copyItem(at: source, to: target)
     }
 
     private func encode(_ profiles: [Profile]) throws -> Data {
@@ -385,7 +423,16 @@ final class ProfileStore {
             }
         }
         if changed {
-            try? encode(updated).write(to: indexURL, options: .atomic)
+            do {
+                try encode(updated).write(to: indexURL, options: .atomic)
+            } catch {
+                // 索引写入失败时把文件名改回去，避免下次启动找不到配置文件
+                for (old, new) in zip(profiles, updated) where old.fileName != new.fileName {
+                    _ = try? moveFileIfExists(from: new.fileName, to: old.fileName, in: profilesDirectory)
+                    _ = try? moveFileIfExists(from: new.fileName, to: old.fileName, in: runtimeDirectory)
+                }
+                return profiles
+            }
         }
         return updated
     }
@@ -399,7 +446,8 @@ final class ProfileStore {
     }
 
     func download(_ urlString: String, viaProxyPort: Int?) async throws -> Download {
-        guard let url = URL(string: urlString.trimmingCharacters(in: .whitespaces)), url.scheme?.hasPrefix("http") == true else {
+        guard let url = URL(string: urlString.trimmingCharacters(in: .whitespacesAndNewlines)),
+              ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host?.isEmpty == false else {
             throw ProfileError.invalidURL
         }
         let cfg = URLSessionConfiguration.ephemeral
@@ -412,6 +460,7 @@ final class ProfileStore {
             cfg.connectionProxyDictionary = [:]
         }
         cfg.timeoutIntervalForRequest = 30
+        cfg.timeoutIntervalForResource = 120
         let session = URLSession(configuration: cfg)
         defer { session.finishTasksAndInvalidate() }
 
@@ -420,6 +469,7 @@ final class ProfileStore {
         let (data, resp) = try await session.data(for: req)
         let http = resp as? HTTPURLResponse
         if let code = http?.statusCode, !(200..<300).contains(code) { throw ProfileError.badStatus(code) }
+        guard data.count <= Self.maxDownloadSize else { throw ProfileError.responseTooLarge }
 
         let headers = http?.allHeaderFields ?? [:]
         func header(_ name: String) -> String? {
@@ -437,26 +487,32 @@ final class ProfileStore {
     /// 写入前做基本校验，再交给内核 -t 校验
     @MainActor
     func writeValidated(_ data: Data, to url: URL, beforeCommit: (() throws -> Void)? = nil) async throws {
-        let text = String(decoding: data, as: UTF8.self)
-        let keys = ["proxies:", "proxy-providers:", "proxy-groups:", "rules:", "mixed-port:", "port:"]
-        guard keys.contains(where: { text.contains($0) }) else { throw ProfileError.notClashConfig }
+        guard Self.looksLikeClashConfig(String(decoding: data, as: UTF8.self)) else { throw ProfileError.notClashConfig }
+        guard FileManager.default.isExecutableFile(atPath: AppPaths.coreBinary.path) else { throw ProfileError.missingCore }
 
         let original = FileManager.default.fileExists(atPath: url.path) ? try Data(contentsOf: url) : nil
         let tmp = profilesDirectory.appendingPathComponent(".validate-\(UUID().uuidString).yaml")
         try data.write(to: tmp)
         defer { try? FileManager.default.removeItem(at: tmp) }
-        if FileManager.default.isExecutableFile(atPath: AppPaths.coreBinary.path) {
-            let r = await CoreManager.testConfig(tmp.path)
-            if !r.ok {
-                let lines = r.output.split(separator: "\n").filter { $0.contains("level=error") || $0.contains("level=fatal") || $0.contains("failed") }
-                throw ProfileError.invalidConfig((lines.isEmpty ? r.output : lines.joined(separator: "\n")).trimmingCharacters(in: .whitespacesAndNewlines))
-            }
+        let r = await CoreManager.testConfig(tmp.path)
+        if !r.ok {
+            let lines = r.output.split(separator: "\n").filter { $0.contains("level=error") || $0.contains("level=fatal") || $0.contains("failed") }
+            throw ProfileError.invalidConfig((lines.isEmpty ? r.output : lines.joined(separator: "\n")).trimmingCharacters(in: .whitespacesAndNewlines))
         }
         try Task.checkCancellation()
         try beforeCommit?()
         let current = FileManager.default.fileExists(atPath: url.path) ? try Data(contentsOf: url) : nil
         guard current == original else { throw ProfileError.profileChanged }
         try data.write(to: url, options: .atomic)
+    }
+
+    /// 顶层出现任一常见键才视为 Clash 配置；按行首匹配，避免 `transport:` 之类的子串误判
+    static func looksLikeClashConfig(_ text: String) -> Bool {
+        let keys: Set = ["proxies", "proxy-providers", "proxy-groups", "rules", "mixed-port", "port"]
+        return text.split(whereSeparator: \.isNewline).contains { line in
+            guard let colon = line.firstIndex(of: ":") else { return false }
+            return keys.contains(String(line[..<colon]))
+        }
     }
 
     static func fileName(fromDisposition value: String?) -> String? {

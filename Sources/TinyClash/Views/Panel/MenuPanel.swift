@@ -66,6 +66,8 @@ struct MenuPanel: View {
         return .home
         #endif
     }()
+    /// 访问过的标签页保持挂载，切换标签时不丢失正在编辑的表单和滚动位置
+    @State private var visited: Set<PanelTab> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -82,13 +84,17 @@ struct MenuPanel: View {
                     .padding(.bottom, 10)
             }
             Divider()
-            Group {
-                switch tab {
-                case .home: HomeTab()
-                case .proxies: ProxiesTab()
-                case .profiles: ProfilesTab()
-                case .rules: RulesTab()
-                case .settings: SettingsTab()
+            ZStack(alignment: .top) {
+                ForEach(PanelTab.allCases) { t in
+                    if t == tab || visited.contains(t) {
+                        tabContent(t)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                            .opacity(t == tab ? 1 : 0)
+                            // 隐藏的标签页禁用交互，避免其中的 ⎋ / ↩ 快捷键被触发
+                            .disabled(t != tab)
+                            .allowsHitTesting(t == tab)
+                            .accessibilityHidden(t != tab)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -98,8 +104,18 @@ struct MenuPanel: View {
         .accentColor(Theme.accent)
         .tint(Theme.accent)
         // 窗口打开时 AppKit 会把焦点给第一个输入框并全选文字，这里清掉，避免误输入
-        .onAppear(perform: clearFocus)
-        .onChange(of: tab) { clearFocus() }
+        .onAppear {
+            clearFocus()
+            visited.insert(tab)
+            Task { await state.panelDidOpen() }
+        }
+        .onChange(of: tab) {
+            visited.insert(tab)
+            clearFocus()
+        }
+        .onChange(of: state.addSubscriptionRequest) {
+            if state.addSubscriptionRequest != nil { tab = .profiles }
+        }
         #if TINYCLASH_PREVIEW
         .task {
             // 截图检查：启动参数 -uiCycleTabs YES，内核就绪并测速后每 4 秒切换一个标签页
@@ -120,6 +136,16 @@ struct MenuPanel: View {
             }
         }
         #endif
+    }
+
+    @ViewBuilder private func tabContent(_ t: PanelTab) -> some View {
+        switch t {
+        case .home: HomeTab()
+        case .proxies: ProxiesTab()
+        case .profiles: ProfilesTab()
+        case .rules: RulesTab()
+        case .settings: SettingsTab()
+        }
     }
 
     private func clearFocus() {
@@ -215,12 +241,13 @@ private struct ErrorBanner: View {
                 } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .bold)) }
                     .buttonStyle(.borderless)
                     .help("关闭")
+                    .accessibilityLabel("关闭错误提示")
                 Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(message, forType: .string)
+                    Pasteboard.copy(message)
                 } label: { Image(systemName: "doc.on.doc").font(.system(size: 10)) }
                     .buttonStyle(.borderless)
                     .help("复制错误信息")
+                    .accessibilityLabel("复制错误信息")
             }
             .foregroundStyle(.secondary)
         }
@@ -271,9 +298,9 @@ struct PanelSection<Content: View>: View {
                 Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.leading, 4)
             }
             VStack(spacing: 0) { content }
-                .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.Radius.tile + 2, style: .continuous))
+                .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.Radius.section, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: Theme.Radius.tile + 2, style: .continuous)
+                    RoundedRectangle(cornerRadius: Theme.Radius.section, style: .continuous)
                         .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
                 )
             if let footer {
@@ -304,6 +331,19 @@ struct PanelRow<Trailing: View>: View {
             .padding(.horizontal, 12)
             .frame(minHeight: 36)
             if divider { Divider().padding(.leading, icon == nil ? 12 : 38) }
+        }
+    }
+}
+
+extension View {
+    /// 设置行内下拉列表：统一固定宽度并靠右对齐
+    @ViewBuilder
+    func panelPicker() -> some View {
+        let picker = labelsHidden()
+        if #available(macOS 26, *) {
+            picker.buttonSizing(.flexible).frame(width: 180, alignment: .trailing)
+        } else {
+            picker.frame(width: 180, alignment: .trailing)
         }
     }
 }

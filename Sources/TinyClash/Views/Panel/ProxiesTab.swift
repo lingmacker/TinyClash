@@ -11,14 +11,11 @@ struct ProxiesTab: View {
     }()
 
     @State private var route = Route.list
+    @State private var deletingGroup: String?
 
     private enum Route { case list, add, edit(CustomGroup), requests }
 
-    private var canEditGroups: Bool {
-        guard let id = state.selectedProfileID, state.selectedProfile != nil else { return false }
-        return !state.busy && state.coreState != .starting &&
-            !state.isEditingSelectedProfile && !state.updatingProfiles.contains(id)
-    }
+    private var canEditGroups: Bool { state.canEditSelectedProfile }
 
     var body: some View {
         switch route {
@@ -43,6 +40,7 @@ struct ProxiesTab: View {
                     openGroup = nil
                 }
             }
+            .deleteGroupConfirmation($deletingGroup)
         }
     }
 
@@ -76,11 +74,7 @@ struct ProxiesTab: View {
                 if state.currentMode != .direct && !state.visibleGroups.isEmpty {
                     groupList
                 } else {
-                    VStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("内核启动中…").font(.caption).foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    LoadingHint(text: "内核启动中…")
                 }
             } else if !state.isRunning {
                 EmptyHint(text: state.selectedProfile == nil ? "请先在「配置」页添加并选择配置" : "内核未运行\n仍可添加策略组并写入当前配置")
@@ -109,23 +103,44 @@ struct ProxiesTab: View {
                         if group.name != "GLOBAL" {
                             Button("编辑策略组") { edit(group.name) }
                                 .disabled(!canEditGroups)
-                            Button("删除策略组", role: .destructive) {
-                                Task { await state.deleteGroup(named: group.name) }
-                            }
-                            .disabled(!canEditGroups)
+                            Button("删除策略组…", role: .destructive) { deletingGroup = group.name }
+                                .disabled(!canEditGroups)
                         }
                     }
                     .accessibilityAction(named: "编辑策略组") {
                         if group.name != "GLOBAL" && canEditGroups { edit(group.name) }
                     }
                     .accessibilityAction(named: "删除策略组") {
-                        if group.name != "GLOBAL" && canEditGroups {
-                            Task { await state.deleteGroup(named: group.name) }
-                        }
+                        if group.name != "GLOBAL" && canEditGroups { deletingGroup = group.name }
                     }
                 }
             }
             .padding(14)
+        }
+    }
+}
+
+extension View {
+    /// 删除策略组前确认；删除会直接改写当前配置的 YAML
+    func deleteGroupConfirmation(_ name: Binding<String?>, onDeleted: @escaping () -> Void = {}) -> some View {
+        modifier(DeleteGroupConfirmation(name: name, onDeleted: onDeleted))
+    }
+}
+
+private struct DeleteGroupConfirmation: ViewModifier {
+    @Environment(AppState.self) private var state
+    @Binding var name: String?
+    var onDeleted: () -> Void
+
+    func body(content: Content) -> some View {
+        content.alert("删除策略组「\(name ?? "")」？", isPresented: Binding(get: { name != nil }, set: { if !$0 { name = nil } })) {
+            Button("取消", role: .cancel) {}
+            Button("删除", role: .destructive) {
+                guard let target = name else { return }
+                Task { if await state.deleteGroup(named: target) { onDeleted() } }
+            }
+        } message: {
+            Text("会从当前配置的 YAML 中删除该策略组；仍被规则或其他策略组引用时不会删除。")
         }
     }
 }
@@ -147,7 +162,7 @@ private struct GroupCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Text(group.name).font(.callout.weight(.semibold)).lineLimit(1)
+                Text(group.name).font(.callout.weight(.semibold)).lineLimit(1).truncationMode(.middle)
                 Tag(text: typeTitle(group.type))
                 Spacer(minLength: 4)
                 if state.testingGroups.contains(group.name) { ProgressView().controlSize(.mini) }
@@ -206,10 +221,19 @@ private struct GroupDetail: View {
     var edit: () -> Void
     var back: () -> Void
     @State private var search = ""
+    @State private var confirmingDelete: String?
+    @AppStorage("sortNodesByDelay") private var sortByDelay = false
 
     private var members: [String] {
         let all = group.all ?? []
-        return search.isEmpty ? all : all.filter { $0.localizedCaseInsensitiveContains(search) }
+        let filtered = search.isEmpty ? all : all.filter { $0.localizedCaseInsensitiveContains(search) }
+        guard sortByDelay else { return filtered }
+        // 未测速和超时（0）的排在后面，其余按延迟升序；稳定排序保留原顺序
+        func key(_ name: String) -> Int {
+            guard let d = state.delay(of: name), d > 0 else { return .max }
+            return d
+        }
+        return filtered.enumerated().sorted { (key($0.element), $0.offset) < (key($1.element), $1.offset) }.map(\.element)
     }
 
     var body: some View {
@@ -225,13 +249,7 @@ private struct GroupDetail: View {
                                 .help("编辑策略组")
                                 .accessibilityLabel("编辑策略组")
                                 .disabled(!canEdit)
-                            Button(role: .destructive) {
-                                Task {
-                                    if await state.deleteGroup(named: group.name) {
-                                        back()
-                                    }
-                                }
-                            } label: {
+                            Button(role: .destructive) { confirmingDelete = group.name } label: {
                                 Image(systemName: "trash")
                             }
                             .buttonStyle(.borderless)
@@ -240,6 +258,12 @@ private struct GroupDetail: View {
                             .disabled(!canEdit)
                         }
                     }
+                    Button { sortByDelay.toggle() } label: {
+                        Image(systemName: sortByDelay ? "arrow.up.arrow.down.circle.fill" : "arrow.up.arrow.down.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .help(sortByDelay ? "按原顺序显示" : "按延迟排序")
+                    .accessibilityLabel(sortByDelay ? "按原顺序显示" : "按延迟排序")
                     if state.testingGroups.contains(group.name) {
                         ProgressView().controlSize(.small)
                     } else {
@@ -276,6 +300,14 @@ private struct GroupDetail: View {
                 .padding(14)
             }
         }
+        .deleteGroupConfirmation($confirmingDelete, onDeleted: back)
+        .task(id: group.name) {
+            // 进入分组时还没有任何延迟数据，自动测一次，方便挑选节点
+            let all = group.all ?? []
+            guard state.isRunning, !all.isEmpty, !state.pendingNewGroupNames.contains(group.name),
+                  all.allSatisfy({ state.delay(of: $0) == nil }) else { return }
+            await state.testGroup(group.name)
+        }
     }
 }
 
@@ -297,7 +329,7 @@ private struct NodeRow: View {
                 .opacity(selected || canSelect ? 1 : 0)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
-                Text(name).font(.callout.weight(selected ? .semibold : .regular)).lineLimit(1)
+                Text(name).font(.callout.weight(selected ? .semibold : .regular)).lineLimit(1).truncationMode(.middle)
                 Text(detail(item)).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 6)
@@ -315,16 +347,23 @@ private struct NodeRow: View {
         .frame(height: 42)
         .background(
             RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
-                .fill(selected ? AnyShapeStyle(Color.accentColor.opacity(0.12))
+                .fill(selected ? AnyShapeStyle(Theme.controlFill)
                                : AnyShapeStyle(hovering ? Theme.inset : Color.clear))
         )
         .contentShape(Rectangle())
         .onHover { hovering = $0 && canSelect }
-        .onTapGesture {
-            guard canSelect, !selected else { return }
-            Task { await state.select(group: group.name, proxy: name) }
-        }
-        .accessibilityAddTraits(selected ? .isSelected : [])
+        .onTapGesture(perform: choose)
+        .help(name)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(selected ? [.isSelected, .isButton] : canSelect ? .isButton : [])
+        .accessibilityAction { choose() }
+        .accessibilityAction(named: "测试延迟") { Task { await state.testProxy(name) } }
+    }
+
+    private func choose() {
+        let selected = group.now == name
+        guard group.isSelectable, !state.pendingNewGroupNames.contains(group.name), !selected else { return }
+        Task { await state.select(group: group.name, proxy: name) }
     }
 
     private func detail(_ item: ProxyItem?) -> String {

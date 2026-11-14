@@ -1,62 +1,5 @@
 import Foundation
 
-/// 用户在 App 中添加的代理分组（对应 mihomo proxy-groups 的常用字段）
-struct CustomGroup: Codable, Identifiable, Equatable {
-    static let types = ["select", "url-test", "fallback", "load-balance"]
-
-    var id = UUID()
-    var name = ""
-    var type = "select"
-    var proxies: [String] = []
-    /// 引入全部节点（含 proxy-providers），通常与 filter 配合
-    var includeAll = false
-    var filter = ""
-    var url = ""
-    var interval = 300
-
-    var isAutoTest: Bool { type != "select" }
-
-    /// 仅用于文件本身已是单行流式数组 `proxy-groups: [...]` 的场景
-    var flowYAML: String { flowYAML(keeping: [:]) }
-
-    func flowYAML(keeping extras: [String: Any]) -> String {
-        var dict: [String: Any] = extras.merging(["name": name, "type": type]) { $1 }
-        if !proxies.isEmpty { dict["proxies"] = proxies }
-        if includeAll { dict["include-all"] = true }
-        if !filter.isEmpty { dict["filter"] = filter }
-        if isAutoTest {
-            if !url.isEmpty { dict["url"] = url }
-            dict["interval"] = interval
-        }
-        let data = (try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data()
-        return String(decoding: data, as: UTF8.self)
-    }
-
-    /// 标准多行块级 YAML
-    func yamlLines(indent: String) -> [String] {
-        let pad = indent + "  "
-        var lines = ["\(indent)- name: \(ConfigOverlay.yamlScalar(name))"]
-        lines.append("\(pad)type: \(ConfigOverlay.yamlScalar(type))")
-        if !proxies.isEmpty {
-            lines.append("\(pad)proxies:")
-            for proxy in proxies {
-                lines.append("\(pad)  - \(ConfigOverlay.yamlScalar(proxy))")
-            }
-        }
-        if isAutoTest {
-            if !url.isEmpty { lines.append("\(pad)url: \(ConfigOverlay.yamlScalar(url))") }
-            lines.append("\(pad)interval: \(interval)")
-        }
-        if includeAll {
-            lines.append("\(pad)include-all: true")
-        }
-        if !filter.isEmpty {
-            lines.append("\(pad)filter: \(ConfigOverlay.yamlScalar(filter))")
-        }
-        return lines
-    }
-}
-
 /// Minimal, text-preserving edits on official top-level YAML sections.
 /// Also used to read legacy profiles.json overlays until that profile is edited.
 /// This intentionally is not a general YAML parser; mihomo validates the result.
@@ -123,6 +66,8 @@ enum ConfigOverlay {
         case duplicateGroup(String)
         case groupNotFound(String)
         case ruleNotFound
+        case unsupportedGroup(String)
+        case mixedNewlines
 
         var errorDescription: String? {
             switch self {
@@ -134,6 +79,10 @@ enum ConfigOverlay {
                 return "未在当前配置文件中找到策略组「\(name)」"
             case .ruleNotFound:
                 return "未在当前配置文件中找到该规则（可能来自规则集或配置已变更）"
+            case .unsupportedGroup(let name):
+                return "策略组「\(name)」使用了暂不支持安全修改的 YAML 写法（如多行字符串、锚点或别名），请在外部编辑器中修改"
+            case .mixedNewlines:
+                return "配置文件混用了 CRLF 与 LF 换行，请先在编辑器中统一换行符"
             }
         }
     }
@@ -143,34 +92,30 @@ enum ConfigOverlay {
     /// 兼容旧版 profiles.json 覆盖层与测试：去重合并规则（插入最前）与策略组（追加末尾）
     static func apply(rules: [String], groups: [CustomGroup], to yaml: String) throws -> String {
         guard !rules.isEmpty || !groups.isEmpty else { return yaml }
-        let newline = yaml.contains("\r\n") ? "\r\n" : "\n"
-        var lines = yaml.components(separatedBy: newline)
+        var (lines, newline) = try editableLines(yaml)
         try insertGroups(groups, deduplicate: true, into: &lines)
         try insertRules(rules, deduplicate: true, into: &lines)
         return lines.joined(separator: newline)
     }
 
     static func addRule(_ rule: String, to yaml: String) throws -> String {
-        let newline = yaml.contains("\r\n") ? "\r\n" : "\n"
-        var lines = yaml.components(separatedBy: newline)
+        var (lines, newline) = try editableLines(yaml)
         try insertRules([rule], deduplicate: false, into: &lines)
         return lines.joined(separator: newline)
     }
 
     static func addGroup(_ group: CustomGroup, to yaml: String) throws -> String {
-        let newline = yaml.contains("\r\n") ? "\r\n" : "\n"
-        var lines = yaml.components(separatedBy: newline)
+        var (lines, newline) = try editableLines(yaml)
         try insertGroups([group], deduplicate: false, into: &lines)
         return lines.joined(separator: newline)
     }
 
     static func removeGroup(named name: String, from yaml: String) throws -> String {
-        let newline = yaml.contains("\r\n") ? "\r\n" : "\n"
-        var lines = yaml.components(separatedBy: newline)
+        var (lines, newline) = try editableLines(yaml)
         guard let keyIndex = topLevelKeyIndex("proxy-groups", in: lines) else {
             throw OverlayError.groupNotFound(name)
         }
-        let rawAfterKey = String(lines[keyIndex].dropFirst("proxy-groups:".count))
+        let rawAfterKey = valueAfterKey(lines[keyIndex])
         let (rest, inlineComment) = splitComment(rawAfterKey)
 
         if rest.hasPrefix("["), rest.hasSuffix("]"), let range = lines[keyIndex].range(of: rest) {
@@ -187,6 +132,7 @@ enum ConfigOverlay {
         }
 
         let end = sectionEnd(after: keyIndex, in: lines)
+        if sectionStartsWithFlow(lines, range: (keyIndex + 1)..<end) { throw OverlayError.flowStyle("proxy-groups") }
         let blocks = parseGroupBlocks(in: lines, range: (keyIndex + 1)..<end)
         guard let target = blocks.first(where: { $0.name == name }) else {
             throw OverlayError.groupNotFound(name)
@@ -202,12 +148,12 @@ enum ConfigOverlay {
 
     /// 读取配置文件中的策略组，供编辑表单预填；无法安全解析的写法返回 nil
     static func group(named name: String, in yaml: String) -> CustomGroup? {
-        let lines = yaml.components(separatedBy: yaml.contains("\r\n") ? "\r\n" : "\n")
+        let lines = readableLines(yaml)
         guard let keyIndex = topLevelKeyIndex("proxy-groups", in: lines) else { return nil }
-        let (rest, _) = splitComment(String(lines[keyIndex].dropFirst("proxy-groups:".count)))
+        let (rest, _) = splitComment(valueAfterKey(lines[keyIndex]))
         if rest.hasPrefix("["), rest.hasSuffix("]") {
             let items = splitFlowSequence(String(rest.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces))
-            return items.first { flowGroupName($0) == name }.flatMap(jsonMapping).map { groupFields(from: $0).group }
+            return items.first { flowGroupName($0) == name }.flatMap(flowMapping).map { groupFields(from: $0).group }
         }
         guard rest.isEmpty else { return nil }
         let end = sectionEnd(after: keyIndex, in: lines)
@@ -217,9 +163,9 @@ enum ConfigOverlay {
 
     /// 读取配置文件中的策略组摘要列表，用于重启内核前在 UI 中同步最新策略组状态
     static func groupSummaries(in yaml: String) -> [GroupSummary] {
-        let lines = yaml.components(separatedBy: yaml.contains("\r\n") ? "\r\n" : "\n")
+        let lines = readableLines(yaml)
         guard let keyIndex = topLevelKeyIndex("proxy-groups", in: lines) else { return [] }
-        let (rest, _) = splitComment(String(lines[keyIndex].dropFirst("proxy-groups:".count)))
+        let (rest, _) = splitComment(valueAfterKey(lines[keyIndex]))
         if rest.hasPrefix("["), rest.hasSuffix("]") {
             let inner = String(rest.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
             let items = inner.isEmpty ? [] : splitFlowSequence(inner)
@@ -290,16 +236,14 @@ enum ConfigOverlay {
 
     /// 原位替换策略组：表单管理的字段按标准 YAML 重写，其余字段（use、lazy 等）原样保留
     static func replaceGroup(named name: String, with group: CustomGroup, in yaml: String) throws -> String {
-        let newline = yaml.contains("\r\n") ? "\r\n" : "\n"
-        var lines = yaml.components(separatedBy: newline)
+        var (lines, newline) = try editableLines(yaml)
         guard let keyIndex = topLevelKeyIndex("proxy-groups", in: lines) else { throw OverlayError.groupNotFound(name) }
-        let (rest, _) = splitComment(String(lines[keyIndex].dropFirst("proxy-groups:".count)))
+        let (rest, _) = splitComment(valueAfterKey(lines[keyIndex]))
 
         if rest.hasPrefix("["), rest.hasSuffix("]"), let range = lines[keyIndex].range(of: rest) {
             var items = splitFlowSequence(String(rest.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces))
-            guard let idx = items.firstIndex(where: { flowGroupName($0) == name }), let mapping = jsonMapping(items[idx]) else {
-                throw OverlayError.groupNotFound(name)
-            }
+            guard let idx = items.firstIndex(where: { flowGroupName($0) == name }) else { throw OverlayError.groupNotFound(name) }
+            guard let mapping = flowMapping(items[idx]) else { throw OverlayError.unsupportedGroup(name) }
             items[idx] = group.flowYAML(keeping: groupFields(from: mapping).extras)
             lines[keyIndex].replaceSubrange(range, with: "[\(items.joined(separator: ", "))]")
             return lines.joined(separator: newline)
@@ -308,12 +252,17 @@ enum ConfigOverlay {
         }
 
         let end = sectionEnd(after: keyIndex, in: lines)
-        guard let block = parseGroupBlocks(in: lines, range: (keyIndex + 1)..<end).first(where: { $0.name == name }),
-              let parsed = parseGroupBody(lines[block.removeStart..<block.contentEnd], dashIndent: block.dashIndent) else {
+        if sectionStartsWithFlow(lines, range: (keyIndex + 1)..<end) { throw OverlayError.flowStyle("proxy-groups") }
+        guard let block = parseGroupBlocks(in: lines, range: (keyIndex + 1)..<end).first(where: { $0.name == name }) else {
             throw OverlayError.groupNotFound(name)
         }
+        guard let parsed = parseGroupBody(lines[block.removeStart..<block.contentEnd], dashIndent: block.dashIndent) else {
+            throw OverlayError.unsupportedGroup(name)
+        }
         let pad = block.dashIndent + "  "
-        var replacement = group.yamlLines(indent: block.dashIndent)
+        var replacement = group.yamlLines(indent: block.dashIndent, proxyComments: parsed.proxyComments)
+        // 表单字段之间的整行注释保留在名称之后，避免编辑时丢失
+        replacement.insert(contentsOf: parsed.comments.map { pad + $0 }, at: 1)
         for extra in parsed.extras {
             replacement.append(pad + extra.head)
             replacement.append(contentsOf: extra.children.map { reindent($0, by: pad.count - parsed.keyIndent) })
@@ -333,9 +282,9 @@ enum ConfigOverlay {
 
     /// 配置文件中与运行时规则对应的原始文本（未经内核规范化）
     static func ruleText(_ target: RuleTarget, in yaml: String) -> String? {
-        let lines = yaml.components(separatedBy: yaml.contains("\r\n") ? "\r\n" : "\n")
+        let lines = readableLines(yaml)
         guard let keyIndex = topLevelKeyIndex("rules", in: lines) else { return nil }
-        let (rest, _) = splitComment(String(lines[keyIndex].dropFirst("rules:".count)))
+        let (rest, _) = splitComment(valueAfterKey(lines[keyIndex]))
         if rest.hasPrefix("["), rest.hasSuffix("]") {
             let texts = splitFlowSequence(String(rest.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)).map(unquoteScalar)
             let match = selectRuleMatch(target: target, entries: texts.enumerated().map { ($0.offset, parseRuleFields($0.element)) })
@@ -349,9 +298,9 @@ enum ConfigOverlay {
 
     /// 读取配置文件中的规则列表，用于重启内核前在 UI 中同步最新规则顺序与条目
     static func ruleItems(in yaml: String) -> [RuleItem] {
-        let lines = yaml.components(separatedBy: yaml.contains("\r\n") ? "\r\n" : "\n")
+        let lines = readableLines(yaml)
         guard let keyIndex = topLevelKeyIndex("rules", in: lines) else { return [] }
-        let (rest, _) = splitComment(String(lines[keyIndex].dropFirst("rules:".count)))
+        let (rest, _) = splitComment(valueAfterKey(lines[keyIndex]))
         let parsedList: [ParsedRule?]
         if rest.hasPrefix("["), rest.hasSuffix("]") {
             let inner = String(rest.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
@@ -369,12 +318,11 @@ enum ConfigOverlay {
     }
 
     private static func editRule(_ target: RuleTarget, in yaml: String, replacement: String?) throws -> String {
-        let newline = yaml.contains("\r\n") ? "\r\n" : "\n"
-        var lines = yaml.components(separatedBy: newline)
+        var (lines, newline) = try editableLines(yaml)
         guard let keyIndex = topLevelKeyIndex("rules", in: lines) else {
             throw OverlayError.ruleNotFound
         }
-        let rawAfterKey = String(lines[keyIndex].dropFirst("rules:".count))
+        let rawAfterKey = valueAfterKey(lines[keyIndex])
         let (rest, inlineComment) = splitComment(rawAfterKey)
 
         if rest.hasPrefix("["), rest.hasSuffix("]"), let range = lines[keyIndex].range(of: rest) {
@@ -394,6 +342,7 @@ enum ConfigOverlay {
         }
 
         let end = sectionEnd(after: keyIndex, in: lines)
+        if sectionStartsWithFlow(lines, range: (keyIndex + 1)..<end) { throw OverlayError.flowStyle("rules") }
         let entries = parseRuleEntries(in: lines, range: (keyIndex + 1)..<end)
         guard let match = selectRuleMatch(target: target, entries: entries.map { ($0.lineIndex, $0.parsed) }) else {
             throw OverlayError.ruleNotFound
@@ -427,7 +376,7 @@ enum ConfigOverlay {
             return
         }
 
-        let rawAfterKey = String(lines[keyIndex].dropFirst("rules:".count))
+        let rawAfterKey = valueAfterKey(lines[keyIndex])
         let (rest, inlineComment) = splitComment(rawAfterKey)
         if rest.hasPrefix("["), rest.hasSuffix("]"), let range = lines[keyIndex].range(of: rest) {
             let inner = String(rest.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
@@ -448,6 +397,7 @@ enum ConfigOverlay {
         }
 
         let end = sectionEnd(after: keyIndex, in: lines)
+        if sectionStartsWithFlow(lines, range: (keyIndex + 1)..<end) { throw OverlayError.flowStyle("rules") }
         let existing = Set(parseRuleEntries(in: lines, range: (keyIndex + 1)..<end).map(\.text))
         var seen = deduplicate ? existing : Set<String>()
         let filtered = deduplicate ? rules.filter { seen.insert($0).inserted } : rules
@@ -469,7 +419,7 @@ enum ConfigOverlay {
             return
         }
 
-        let rawAfterKey = String(lines[keyIndex].dropFirst("proxy-groups:".count))
+        let rawAfterKey = valueAfterKey(lines[keyIndex])
         let (rest, inlineComment) = splitComment(rawAfterKey)
         if rest.hasPrefix("["), rest.hasSuffix("]"), let range = lines[keyIndex].range(of: rest) {
             let inner = String(rest.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
@@ -500,6 +450,7 @@ enum ConfigOverlay {
         }
 
         let end = sectionEnd(after: keyIndex, in: lines)
+        if sectionStartsWithFlow(lines, range: (keyIndex + 1)..<end) { throw OverlayError.flowStyle("proxy-groups") }
         let existingNames = Set(parseGroupBlocks(in: lines, range: (keyIndex + 1)..<end).compactMap(\.name))
         var seen = existingNames
         var toAdd: [CustomGroup] = []
@@ -526,11 +477,52 @@ enum ConfigOverlay {
 
     // MARK: - Section & Block Helpers
 
+    /// 顶层键可以带引号（`"rules":`），冒号前允许空格
     private static func topLevelKeyIndex(_ key: String, in lines: [String]) -> Int? {
-        lines.firstIndex { $0.hasPrefix("\(key):") }
+        lines.firstIndex { line in
+            for candidate in [key, "\"\(key)\"", "'\(key)'"] where line.hasPrefix(candidate) {
+                if line.dropFirst(candidate.count).drop(while: { $0 == " " }).hasPrefix(":") { return true }
+            }
+            return false
+        }
     }
 
-    private static func sectionEnd(after keyIndex: Int, in lines: [String]) -> Int {
+    /// 顶层键所在行冒号之后的原始文本
+    private static func valueAfterKey(_ line: String) -> String {
+        guard let colon = line.firstIndex(of: ":") else { return "" }
+        return String(line[line.index(after: colon)...])
+    }
+
+    private static func hasMixedNewlines(_ yaml: String) -> Bool {
+        guard yaml.contains("\r\n") else { return false }
+        return yaml.replacingOccurrences(of: "\r\n", with: "").contains("\n")
+    }
+
+    /// 编辑时换行符必须统一，否则无法原样写回
+    private static func editableLines(_ yaml: String) throws -> (lines: [String], newline: String) {
+        guard !hasMixedNewlines(yaml) else { throw OverlayError.mixedNewlines }
+        let newline = yaml.contains("\r\n") ? "\r\n" : "\n"
+        return (yaml.components(separatedBy: newline), newline)
+    }
+
+    /// 只读解析时容忍混用的换行符
+    private static func readableLines(_ yaml: String) -> [String] {
+        hasMixedNewlines(yaml)
+            ? yaml.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+            : yaml.components(separatedBy: yaml.contains("\r\n") ? "\r\n" : "\n")
+    }
+
+    /// `rules:` 下一行才开始的流式写法（`  [A, B]`），块级插入会写出非法 YAML
+    private static func sectionStartsWithFlow(_ lines: [String], range: Range<Int>) -> Bool {
+        for line in lines[range] {
+            let t = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if t.isEmpty || t.hasPrefix("#") { continue }
+            return t.hasPrefix("[") || t.hasPrefix("{")
+        }
+        return false
+    }
+
+    static func sectionEnd(after keyIndex: Int, in lines: [String]) -> Int {
         for i in (keyIndex + 1)..<lines.count {
             let line = lines[i]
             guard let first = line.first, first != " ", first != "\t", first != "-", first != "#", first != "\r" else { continue }
@@ -606,19 +598,30 @@ enum ConfigOverlay {
         var children: [String]
     }
 
-    /// 解析块级策略组条目；单行 `- {...}`（JSON 写法）转换后同样支持
-    private static func parseGroupBody(_ block: ArraySlice<String>, dashIndent: String)
-        -> (group: CustomGroup, extras: [ExtraKey], keyIndent: Int)? {
+    private struct ParsedGroupBody {
+        var group: CustomGroup
+        var extras: [ExtraKey]
+        var keyIndent: Int
+        /// 表单字段下的整行注释（不含缩进）
+        var comments: [String] = []
+        /// proxies 成员的注释，键为成员名；空键表示列表末尾的注释
+        var proxyComments: [String: CustomGroup.ProxyComment] = [:]
+    }
+
+    /// 解析块级策略组条目；单行 `- {...}`（JSON 或 YAML 流式写法）同样支持。
+    /// 表单字段使用多行字符串、锚点、别名、标签或合并键时返回 nil，拒绝编辑以免改坏配置。
+    private static func parseGroupBody(_ block: ArraySlice<String>, dashIndent: String) -> ParsedGroupBody? {
         guard let first = block.first else { return nil }
         let afterDashRaw = String(first.dropFirst(dashIndent.count).dropFirst())
         let spaces = afterDashRaw.prefix { $0 == " " }.count
         let firstRaw = String(afterDashRaw.dropFirst(spaces)).trimmingCharacters(in: .newlines)
         let (firstContent, _) = splitComment(firstRaw)
         if firstContent.hasPrefix("{") {
-            guard let mapping = jsonMapping(block.joined(separator: " ").drop { $0 != "{" }.description) else { return nil }
+            let flow = block.map { splitComment($0.trimmingCharacters(in: .whitespaces)).content }.joined(separator: " ")
+            guard let mapping = flowMapping(String(flow.drop { $0 != "{" })) else { return nil }
             let fields = groupFields(from: mapping)
             let extras = fields.extras.sorted { $0.key < $1.key }.map { ExtraKey(head: "\($0.key): \(jsonText($0.value))", children: []) }
-            return (fields.group, extras, dashIndent.count + 2)
+            return ParsedGroupBody(group: fields.group, extras: extras, keyIndent: dashIndent.count + 2)
         }
 
         // 按键拆分：(去注释行内容用于解析, 保留注释的原始行, 下级行)
@@ -642,10 +645,22 @@ enum ConfigOverlay {
 
         var group = CustomGroup()
         var extras: [ExtraKey] = []
+        var comments: [String] = []
+        var proxyComments: [String: CustomGroup.ProxyComment] = [:]
         for chunk in chunks {
             guard let colon = chunk.content.firstIndex(of: ":") else { return nil }
             let key = unquoteScalar(String(chunk.content[..<colon]))
             let value = String(chunk.content[chunk.content.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+            if key == "<<" { return nil }
+            if managedGroupKeys.contains(key) {
+                // 多行字符串（| >）、锚点、别名与标签都无法按单行值安全改写
+                if let first = value.first, "|>*&!".contains(first) { return nil }
+                let childLines = chunk.children.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                if key != "proxies" {
+                    comments += childLines.filter { $0.hasPrefix("#") }
+                    if childLines.contains(where: { !$0.isEmpty && !$0.hasPrefix("#") }) { return nil }
+                }
+            }
             switch key {
             case "name": group.name = unquoteScalar(value)
             case "type": group.type = unquoteScalar(value)
@@ -656,23 +671,69 @@ enum ConfigOverlay {
             case "proxies":
                 if value.hasPrefix("[") && value.hasSuffix("]") {
                     group.proxies = splitFlowSequence(String(value.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)).map(unquoteScalar)
-                } else {
-                    group.proxies = chunk.children.compactMap { line in
-                        let t = line.trimmingCharacters(in: .whitespaces)
+                } else if value.isEmpty {
+                    var pending: [String] = []
+                    var items: [String] = []
+                    for line in chunk.children {
+                        let t = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if t.hasPrefix("#") { pending.append(t); continue }
+                        if t.isEmpty { continue }
+                        // 成员只能是单行标量，嵌套映射等写法拒绝编辑
                         guard isDashItemLine(t) else { return nil }
-                        let item = splitComment(String(t.dropFirst()).trimmingCharacters(in: .whitespaces)).content
-                        return item.isEmpty ? nil : unquoteScalar(item)
+                        let (item, comment) = splitComment(String(t.dropFirst()).trimmingCharacters(in: .whitespaces))
+                        guard let first = item.first, !"{[|>*&!".contains(first) else { return nil }
+                        let name = unquoteScalar(item)
+                        items.append(name)
+                        if !pending.isEmpty || !comment.isEmpty {
+                            proxyComments[name] = .init(leading: pending, trailing: comment)
+                        }
+                        pending = []
                     }
+                    if !pending.isEmpty { proxyComments[""] = .init(leading: pending, trailing: "") }
+                    group.proxies = items
+                } else {
+                    return nil
                 }
             default:
                 extras.append(ExtraKey(head: chunk.raw, children: chunk.children))
             }
         }
-        return (group, extras, keyIndent)
+        return ParsedGroupBody(group: group, extras: extras, keyIndent: keyIndent,
+                               comments: comments, proxyComments: proxyComments)
     }
 
     private static func jsonMapping(_ text: String) -> [String: Any]? {
         (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
+    }
+
+    /// 单行流式映射：先按 JSON 解析，再按 subconverter 常见的 YAML 流式写法
+    /// （`{name: G, type: select, proxies: [A, B]}`）解析；嵌套映射等复杂写法返回 nil
+    private static func flowMapping(_ text: String) -> [String: Any]? {
+        if let json = jsonMapping(text) { return json }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{"), trimmed.hasSuffix("}") else { return nil }
+        let inner = String(trimmed.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
+        var result: [String: Any] = [:]
+        for pair in inner.isEmpty ? [] : splitFlowSequence(inner) {
+            guard let (key, raw) = splitFlowPair(pair), !key.isEmpty, result[key] == nil else { return nil }
+            if let first = raw.first, "{|>*&!".contains(first) { return nil }
+            if raw.hasPrefix("[") {
+                guard raw.hasSuffix("]") else { return nil }
+                let seq = String(raw.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
+                let items = seq.isEmpty ? [] : splitFlowSequence(seq)
+                guard !items.contains(where: { $0.hasPrefix("{") || $0.hasPrefix("[") }) else { return nil }
+                result[key] = items.map(unquoteScalar)
+            } else if raw.first == "'" || raw.first == "\"" {
+                result[key] = unquoteScalar(raw)
+            } else if ["true", "false"].contains(raw.lowercased()) {
+                result[key] = raw.lowercased() == "true"
+            } else if let n = Int(raw) {
+                result[key] = NSNumber(value: n)
+            } else {
+                result[key] = raw
+            }
+        }
+        return result
     }
 
     private static func jsonText(_ value: Any) -> String {
@@ -700,7 +761,7 @@ enum ConfigOverlay {
         return String(line.dropFirst(removable))
     }
 
-    private static func isDashItemLine(_ trimmed: String) -> Bool {
+    static func isDashItemLine(_ trimmed: String) -> Bool {
         guard trimmed.hasPrefix("-") else { return false }
         let rest = trimmed.dropFirst()
         return rest.isEmpty || rest.first == " " || rest.first == "\t"
@@ -797,18 +858,28 @@ enum ConfigOverlay {
         return ParsedRule(rawType: fields[0], normalizedType: normType, payload: fields[1], proxy: fields[2])
     }
 
+    /// 复合规则在 YAML（`((DOMAIN,a.com),(DST-PORT,443))`）和内核（`((Domain,a.com) && (DstPort,443))`）
+    /// 中写法不同；拆成叶子记号并统一类型名后再比较
+    static func compoundTokens(_ payload: String) -> [String] {
+        payload.components(separatedBy: CharacterSet(charactersIn: "(),&| \t"))
+            .filter { !$0.isEmpty }
+            .map { normalizeType(apiRuleType($0)) }
+    }
+
     private static func selectRuleMatch<ID>(target: RuleTarget, entries: [(ID, ParsedRule?)]) -> ID? {
         let targetType = normalizeType(target.type)
         let compoundTypes: Set<String> = ["and", "or", "not", "subrule"]
+        let isCompound = compoundTypes.contains(targetType)
+        let targetTokens = isCompound ? compoundTokens(target.payload) : []
 
-        func matches(_ parsed: ParsedRule, allowCompoundPayloadMismatch: Bool) -> Bool {
+        func matches(_ parsed: ParsedRule, compoundByTokens: Bool) -> Bool {
             guard parsed.normalizedType == targetType, parsed.proxy == target.proxy else { return false }
-            if allowCompoundPayloadMismatch && compoundTypes.contains(targetType) { return true }
+            if compoundByTokens && isCompound { return compoundTokens(parsed.payload) == targetTokens }
             return parsed.payload.lowercased() == target.payload.lowercased()
         }
 
-        if let index = target.index, entries.indices.contains(index),
-           let parsed = entries[index].1, matches(parsed, allowCompoundPayloadMismatch: true) {
+        if let index = target.index, entries.indices.contains(index), let parsed = entries[index].1,
+           matches(parsed, compoundByTokens: true) || matches(parsed, compoundByTokens: false) {
             return entries[index].0
         }
 
@@ -819,593 +890,24 @@ enum ConfigOverlay {
         }) {
             return exact.0
         }
-        return entries.first(where: { entry in
+        if let found = entries.first(where: { entry in
             guard let p = entry.1 else { return false }
-            return matches(p, allowCompoundPayloadMismatch: false)
-        })?.0
+            return matches(p, compoundByTokens: false)
+        }) {
+            return found.0
+        }
+        guard isCompound else { return nil }
+        if let found = entries.first(where: { entry in entry.1.map { matches($0, compoundByTokens: true) } ?? false }) {
+            return found.0
+        }
+        // 记号也对不上（如 SUB-RULE 等特殊写法）时，只有同类型同策略的复合规则唯一才按序号接受
+        let sameKind = entries.filter { $0.1?.normalizedType == targetType && $0.1?.proxy == target.proxy }
+        guard sameKind.count == 1, let index = target.index, entries.indices.contains(index),
+              entries[index].1?.normalizedType == targetType, entries[index].1?.proxy == target.proxy else { return nil }
+        return entries[index].0
     }
 
     private static func normalizeType(_ type: String) -> String {
         type.lowercased().replacingOccurrences(of: "-", with: "")
-    }
-
-    // MARK: - Flow & Scalar Helpers
-
-    private static func splitFlowSequence(_ inner: String) -> [String] {
-        var result: [String] = []
-        var current = ""
-        var braceDepth = 0
-        var bracketDepth = 0
-        var quote: Character?
-        var escaped = false
-
-        for c in inner {
-            if escaped {
-                current.append(c)
-                escaped = false
-                continue
-            }
-            if quote == "\"", c == "\\" {
-                current.append(c)
-                escaped = true
-                continue
-            }
-            if let q = quote {
-                current.append(c)
-                if c == q { quote = nil }
-                continue
-            }
-            if c == "'" || c == "\"" {
-                quote = c
-                current.append(c)
-            } else if c == "{" {
-                braceDepth += 1
-                current.append(c)
-            } else if c == "}" {
-                braceDepth = max(0, braceDepth - 1)
-                current.append(c)
-            } else if c == "[" {
-                bracketDepth += 1
-                current.append(c)
-            } else if c == "]" {
-                bracketDepth = max(0, bracketDepth - 1)
-                current.append(c)
-            } else if c == ",", braceDepth == 0, bracketDepth == 0 {
-                let item = current.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !item.isEmpty { result.append(item) }
-                current = ""
-            } else {
-                current.append(c)
-            }
-        }
-        let tail = current.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !tail.isEmpty { result.append(tail) }
-        return result
-    }
-
-    private static func flowGroupName(_ mapping: String) -> String? {
-        let trimmed = mapping.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("{"), trimmed.hasSuffix("}") else { return nil }
-        let inner = String(trimmed.dropFirst().dropLast())
-        for pair in splitFlowSequence(inner) {
-            // 按最外层冒号切分键值
-            var quote: Character?
-            var escaped = false
-            for idx in pair.indices {
-                let c = pair[idx]
-                if escaped { escaped = false; continue }
-                if quote == "\"", c == "\\" { escaped = true; continue }
-                if let q = quote {
-                    if c == q { quote = nil }
-                } else if c == "'" || c == "\"" {
-                    quote = c
-                } else if c == ":" {
-                    let key = unquoteScalar(String(pair[..<idx]))
-                    if key == "name" {
-                        let val = String(pair[pair.index(after: idx)...])
-                        let unquoted = unquoteScalar(val)
-                        return unquoted.isEmpty ? nil : unquoted
-                    }
-                    break
-                }
-            }
-        }
-        return nil
-    }
-
-    static func splitTopLevelCommas(_ s: String) -> [String] {
-        var result: [String] = []
-        var current = ""
-        var parenDepth = 0
-        var quote: Character?
-        var escaped = false
-
-        for c in s {
-            if escaped {
-                current.append(c)
-                escaped = false
-                continue
-            }
-            if quote == "\"", c == "\\" {
-                current.append(c)
-                escaped = true
-                continue
-            }
-            if let q = quote {
-                current.append(c)
-                if c == q { quote = nil }
-                continue
-            }
-            if c == "'" || c == "\"" {
-                quote = c
-                current.append(c)
-            } else if c == "(" {
-                parenDepth += 1
-                current.append(c)
-            } else if c == ")" {
-                parenDepth = max(0, parenDepth - 1)
-                current.append(c)
-            } else if c == ",", parenDepth == 0 {
-                result.append(current)
-                current = ""
-            } else {
-                current.append(c)
-            }
-        }
-        result.append(current)
-        return result
-    }
-
-    private static func splitComment(_ s: String) -> (content: String, comment: String) {
-        var quote: Character?
-        var escaped = false
-        for i in s.indices {
-            let c = s[i]
-            if escaped { escaped = false; continue }
-            if quote == "\"", c == "\\" { escaped = true; continue }
-            if let current = quote {
-                if c == current { quote = nil }
-            } else if c == "\"" || c == "'" {
-                quote = c
-            } else if c == "#", i == s.startIndex || s[s.index(before: i)].isWhitespace {
-                let rawContent = s[..<i]
-                let content = rawContent.trimmingCharacters(in: .whitespacesAndNewlines)
-                let leadingSpace = i > s.startIndex && s[s.index(before: i)].isWhitespace ? " " : ""
-                let comment = leadingSpace + s[i...].trimmingCharacters(in: .newlines)
-                return (content, comment)
-            }
-        }
-        return (s.trimmingCharacters(in: .whitespacesAndNewlines), "")
-    }
-
-    static func unquoteScalar(_ raw: String) -> String {
-        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if s.count >= 2, s.hasPrefix("'"), s.hasSuffix("'") {
-            return String(s.dropFirst().dropLast()).replacingOccurrences(of: "''", with: "'")
-        }
-        if s.count >= 2, s.hasPrefix("\""), s.hasSuffix("\"") {
-            if let decoded = try? JSONSerialization.jsonObject(with: Data(s.utf8), options: [.fragmentsAllowed]) as? String {
-                return decoded
-            }
-            return String(s.dropFirst().dropLast())
-                .replacingOccurrences(of: "\\\"", with: "\"")
-                .replacingOccurrences(of: "\\\\", with: "\\")
-        }
-        return s
-    }
-
-    /// 块级规则：普通内容不加引号（如 DOMAIN-SUFFIX,google.com,DIRECT），仅含 YAML 特殊字符时加引号
-    static func yamlRuleScalar(_ rule: String) -> String {
-        yamlScalar(rule, allowComma: true)
-    }
-
-    /// 块级 YAML 标量：安全时直接输出原文本，含特殊字符/布尔/数字字面量时加单引号或双引号
-    static func yamlScalar(_ value: String, allowComma: Bool = false) -> String {
-        if value.isEmpty { return "\"\"" }
-        let hasControl = value.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7F }
-        if hasControl { return quote(value) }
-        if value.first?.isWhitespace == true || value.last?.isWhitespace == true {
-            return singleQuote(value)
-        }
-        let reserved: Set<String> = ["true", "false", "yes", "no", "on", "off", "y", "n", "null", "~", ".nan", ".inf", "-.inf", "+.inf"]
-        if reserved.contains(value.lowercased()) || Double(value) != nil ||
-            value.hasPrefix("0x") || value.hasPrefix("0o") || value.hasPrefix("0b") {
-            return singleQuote(value)
-        }
-        let leadingIndicators: Set<Character> = ["-", "?", ":", ",", "[", "]", "{", "}", "#", "&", "*", "!", "|", ">", "'", "\"", "%", "@", "`"]
-        if let first = value.first, leadingIndicators.contains(first) {
-            return singleQuote(value)
-        }
-        if value.contains(": ") || value.contains(" #") || value.hasSuffix(":") {
-            return singleQuote(value)
-        }
-        var unsafeChars: Set<Character> = ["[", "]", "{", "}", "|", "'", "\"", "*", "&", "#", "\\", "$", "?"]
-        if !allowComma { unsafeChars.insert(",") }
-        if value.contains(where: { unsafeChars.contains($0) }) {
-            return singleQuote(value)
-        }
-        return value
-    }
-
-    // MARK: - Rule providers
-
-    enum RuleProviderError: LocalizedError {
-        case unsupportedYAML(String)
-        case duplicate(String)
-        case notFound(String)
-        case invalid(String)
-        case rename
-
-        var errorDescription: String? {
-            switch self {
-            case .unsupportedYAML(let detail):
-                return "rule-providers 使用了暂不支持安全编辑的 YAML 写法（\(detail)），请先改为普通块映射"
-            case .duplicate(let name): return "配置中已存在名为「\(name)」的规则集"
-            case .notFound(let name): return "未在当前配置文件中找到规则集「\(name)」"
-            case .invalid(let message): return message
-            case .rename: return "规则集名称不可修改，请新建规则集并手动调整引用"
-            }
-        }
-    }
-
-    /// Deliberately throws for unsupported syntax rather than presenting a partial list.
-    static func ruleProviders(in yaml: String) throws -> [RuleProviderDefinition] {
-        try providerSection(in: providerLines(yaml)).blocks.map(\.definition)
-    }
-
-    static func addRuleProvider(_ provider: RuleProviderDefinition, policy: String? = nil, to yaml: String) throws -> String {
-        try validateProvider(provider)
-        if let policy {
-            guard !policy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw RuleProviderError.invalid("请选择规则集的目标策略")
-            }
-            guard !provider.name.contains(","), !policy.contains(","), !policy.contains(where: \.isNewline) else {
-                throw RuleProviderError.invalid("自动创建 RULE-SET 规则时，规则集名称和策略不能包含逗号或换行")
-            }
-        }
-        let newline = yaml.contains("\r\n") ? "\r\n" : "\n"
-        var lines = providerLines(yaml)
-        let section = try providerSection(in: lines)
-        guard !section.blocks.contains(where: { $0.definition.name == provider.name }) else {
-            throw RuleProviderError.duplicate(provider.name)
-        }
-        if let key = section.key {
-            let (rest, _) = splitComment(String(lines[key].dropFirst("rule-providers:".count)))
-            if rest == "{}", let range = lines[key].range(of: "{}") {
-                lines[key].removeSubrange(range)
-            }
-            let indent = section.blocks.first?.indent ?? 2
-            var insertion = section.end
-            while insertion > key + 1, providerTrivia(lines[insertion - 1]) { insertion -= 1 }
-            lines.insert(contentsOf: providerYAMLLines(provider, indent: indent), at: insertion)
-        } else {
-            // A new section goes before the document's trailing comments, not after them.
-            var insertion = lines.count
-            while insertion > 0, providerTrivia(lines[insertion - 1]) { insertion -= 1 }
-            lines.insert(contentsOf: ["rule-providers:"] + providerYAMLLines(provider, indent: 2), at: insertion)
-        }
-        let added = lines.joined(separator: newline)
-        guard let policy else { return added }
-        return try addRule("RULE-SET,\(provider.name),\(policy)", to: added)
-    }
-
-    static func replaceRuleProvider(named name: String, with provider: RuleProviderDefinition, in yaml: String) throws -> String {
-        guard name == provider.name else { throw RuleProviderError.rename }
-        try validateProvider(provider)
-        let newline = yaml.contains("\r\n") ? "\r\n" : "\n"
-        var lines = providerLines(yaml)
-        let section = try providerSection(in: lines)
-        guard let block = section.blocks.first(where: { $0.definition.name == name }) else {
-            throw RuleProviderError.notFound(name)
-        }
-        // Preserve the original name line, every unknown field (including its children),
-        // and all full-line comments. Only managed field content is replaced.
-        var retained: [String] = []
-        for i in (block.start + 1)..<block.end {
-            if !block.managedLines.contains(i) || providerTrivia(lines[i]) {
-                retained.append(lines[i])
-            } else {
-                // A comment on a replaced scalar/payload item survives as a full line;
-                // never attach it to a different payload value by guessing its index.
-                let (_, comment) = splitComment(lines[i])
-                if !comment.isEmpty {
-                    let indent = lines[i].prefix { $0 == " " }
-                    retained.append(String(indent) + comment.trimmingCharacters(in: .whitespaces))
-                }
-            }
-        }
-        let replacement = [lines[block.start]] + providerFieldLines(provider, indent: block.fieldIndent) + retained
-        lines.replaceSubrange(block.start..<block.end, with: replacement)
-        return lines.joined(separator: newline)
-    }
-
-    static func removeRuleProvider(named name: String, from yaml: String) throws -> String {
-        let newline = yaml.contains("\r\n") ? "\r\n" : "\n"
-        var lines = providerLines(yaml)
-        let section = try providerSection(in: lines)
-        guard let key = section.key, let block = section.blocks.first(where: { $0.definition.name == name }) else {
-            throw RuleProviderError.notFound(name)
-        }
-        // References are intentionally untouched: ProfileStore's strict mihomo validation
-        // rejects dangling RULE-SET references, including compound rules and sub-rules.
-        let comments = lines[block.start..<block.end].filter(providerTrivia)
-        lines.replaceSubrange(block.start..<block.end, with: comments)
-        if section.blocks.count == 1 {
-            let (_, comment) = splitComment(String(lines[key].dropFirst("rule-providers:".count)))
-            lines[key] = "rule-providers: {}" + comment
-        }
-        return lines.joined(separator: newline)
-    }
-
-    private static let managedProviderKeys: Set<String> = ["type", "behavior", "format", "url", "path", "interval", "payload"]
-
-    private struct ProviderBlock {
-        var definition: RuleProviderDefinition
-        var start: Int
-        var end: Int
-        var indent: Int
-        var fieldIndent: Int
-        var managedLines: Set<Int>
-    }
-
-    private struct ProviderSection {
-        var key: Int?
-        var end: Int
-        var blocks: [ProviderBlock]
-    }
-
-    private static func providerLines(_ yaml: String) -> [String] {
-        yaml.components(separatedBy: yaml.contains("\r\n") ? "\r\n" : "\n")
-    }
-
-    private static func providerTrivia(_ line: String) -> Bool {
-        let text = line.trimmingCharacters(in: .whitespaces)
-        return text.isEmpty || text.hasPrefix("#")
-    }
-
-    private static func validateProvider(_ provider: RuleProviderDefinition) throws {
-        if let message = provider.validationMessage { throw RuleProviderError.invalid(message) }
-    }
-
-    private static func providerYAMLLines(_ provider: RuleProviderDefinition, indent: Int) -> [String] {
-        [String(repeating: " ", count: indent) + yamlScalar(provider.name) + ":"] + providerFieldLines(provider, indent: indent + 2)
-    }
-
-    private static func providerFieldLines(_ provider: RuleProviderDefinition, indent: Int) -> [String] {
-        let pad = String(repeating: " ", count: indent)
-        var result = ["\(pad)type: \(provider.type)", "\(pad)behavior: \(provider.behavior)", "\(pad)format: \(provider.format)"]
-        if !provider.url.isEmpty { result.append("\(pad)url: \(yamlScalar(provider.url))") }
-        if !provider.path.isEmpty { result.append("\(pad)path: \(yamlScalar(provider.path))") }
-        result.append("\(pad)interval: \(provider.interval)")
-        if !provider.payload.isEmpty {
-            result.append("\(pad)payload:")
-            result.append(contentsOf: provider.payload.map { "\(pad)  - \(yamlScalar($0))" })
-        }
-        return result
-    }
-
-    private static func providerSection(in lines: [String]) throws -> ProviderSection {
-        var keys: [Int] = []
-        var documentMarkerSeen = false
-        var rootIndent: Int?
-        for (i, line) in lines.enumerated() where !providerTrivia(line) {
-            let text = splitComment(line.trimmingCharacters(in: .whitespaces)).content
-            let indent = line.prefix { $0 == " " }.count
-            if text == "---", rootIndent == nil, !documentMarkerSeen {
-                documentMarkerSeen = true
-                continue
-            }
-            if rootIndent == nil {
-                guard !isDashItemLine(text) else { throw RuleProviderError.unsupportedYAML("文档级序列") }
-                rootIndent = indent
-            }
-            // Nested unknown values stay opaque, including keys that happen to share
-            // the section name and literal block content that resembles YAML markers.
-            guard indent == rootIndent else { continue }
-            if text == "---" || text == "..." { throw RuleProviderError.unsupportedYAML("多文档 YAML") }
-            // A flow map, merge, or alias could conceal providers and incorrectly look
-            // like an absent section. Decode quoted root keys before checking the name.
-            if ["{", "[", "*", "&", "!", "?", "%"].contains(where: { text.hasPrefix($0) }) {
-                throw RuleProviderError.unsupportedYAML("文档级流式映射、锚点或合并")
-            }
-            if isDashItemLine(text) { continue } // indentless sequences belonging to other sections
-            if let pair = try? providerPair(text) {
-                let name = try providerScalar(pair.key)
-                if name == "<<" { throw RuleProviderError.unsupportedYAML("文档级合并") }
-                if name == "rule-providers" {
-                    guard line.hasPrefix("rule-providers:") else { throw RuleProviderError.unsupportedYAML("带引号或缩进的 rule-providers 键") }
-                    keys.append(i)
-                }
-            } else if text.hasPrefix("\"") || text.hasPrefix("'") || text.hasPrefix("rule-providers") {
-                throw RuleProviderError.unsupportedYAML("无法安全解析文档键")
-            }
-        }
-        guard keys.count <= 1 else { throw RuleProviderError.unsupportedYAML("重复的 rule-providers 键") }
-        guard let key = keys.first else { return ProviderSection(key: nil, end: lines.count, blocks: []) }
-        let end = sectionEnd(after: key, in: lines)
-        let (rest, _) = splitComment(String(lines[key].dropFirst("rule-providers:".count)))
-        if rest == "{}" {
-            guard lines[(key + 1)..<end].allSatisfy(providerTrivia) else { throw RuleProviderError.unsupportedYAML("流式映射后包含额外内容") }
-            return ProviderSection(key: key, end: end, blocks: [])
-        }
-        guard rest.isEmpty else { throw RuleProviderError.unsupportedYAML("rule-providers 必须是块映射或空 {}") }
-        var starts: [Int] = []
-        var indent: Int?
-        for i in (key + 1)..<end where !providerTrivia(lines[i]) {
-            guard !lines[i].prefix(while: { $0.isWhitespace }).contains("\t") else { throw RuleProviderError.unsupportedYAML("Tab 缩进") }
-            let currentIndent = lines[i].prefix { $0 == " " }.count
-            if indent == nil {
-                guard currentIndent > 0 else { throw RuleProviderError.unsupportedYAML("规则集名称需要缩进") }
-                indent = currentIndent
-            }
-            guard currentIndent >= indent! else { throw RuleProviderError.unsupportedYAML("不一致的规则集缩进") }
-            if currentIndent == indent { starts.append(i) }
-        }
-        var blocks: [ProviderBlock] = []
-        var names: Set<String> = []
-        for (offset, start) in starts.enumerated() {
-            let next = offset + 1 < starts.count ? starts[offset + 1] : end
-            var contentEnd = next
-            while contentEnd > start + 1, providerTrivia(lines[contentEnd - 1]) { contentEnd -= 1 }
-            let block = try providerBlock(in: lines, start: start, end: contentEnd, indent: indent!)
-            guard names.insert(block.definition.name).inserted else { throw RuleProviderError.duplicate(block.definition.name) }
-            blocks.append(block)
-        }
-        return ProviderSection(key: key, end: end, blocks: blocks)
-    }
-
-    private static func providerBlock(in lines: [String], start: Int, end: Int, indent: Int) throws -> ProviderBlock {
-        let head = splitComment(lines[start].trimmingCharacters(in: .whitespaces)).content
-        let pair = try providerPair(head)
-        let name = try providerScalar(pair.key)
-        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !name.contains(where: { $0.isNewline }), pair.value.isEmpty, name != "<<" else {
-            throw RuleProviderError.unsupportedYAML("规则集条目必须是具名块映射")
-        }
-        var definition = RuleProviderDefinition(name: name)
-        var fields: [Int] = []
-        var fieldIndent: Int?
-        for i in (start + 1)..<end where !providerTrivia(lines[i]) {
-            let currentIndent = lines[i].prefix { $0 == " " }.count
-            if fieldIndent == nil { fieldIndent = currentIndent }
-            guard currentIndent > indent, currentIndent >= fieldIndent! else { throw RuleProviderError.unsupportedYAML("不一致的字段缩进") }
-            // YAML permits a sequence at the same indent as its owning mapping key.
-            // It remains a child of that field, not another field to be discarded.
-            if currentIndent == fieldIndent, !isDashItemLine(lines[i].trimmingCharacters(in: .whitespaces)) { fields.append(i) }
-            else if fields.isEmpty { throw RuleProviderError.unsupportedYAML("规则集内容必须是字段映射") }
-        }
-        var seen: Set<String> = []
-        var managedLines: Set<Int> = []
-        for (offset, field) in fields.enumerated() {
-            let next = offset + 1 < fields.count ? fields[offset + 1] : end
-            let pair = try providerPair(splitComment(lines[field].trimmingCharacters(in: .whitespaces)).content)
-            let key = try providerScalar(pair.key)
-            guard key != "<<", seen.insert(key).inserted else { throw RuleProviderError.unsupportedYAML("合并或重复字段 \(key)") }
-            guard managedProviderKeys.contains(key) else { continue }
-            managedLines.formUnion(field..<next)
-            let children = lines[(field + 1)..<next].filter { !providerTrivia($0) }
-            if key == "payload" {
-                if pair.value.isEmpty {
-                    var payload: [String] = []
-                    var itemIndent: Int?
-                    for line in children {
-                        let text = line.trimmingCharacters(in: .whitespaces)
-                        let currentIndent = line.prefix { $0 == " " }.count
-                        if itemIndent == nil { itemIndent = currentIndent }
-                        guard isDashItemLine(text), currentIndent == itemIndent, currentIndent >= fieldIndent! else {
-                            throw RuleProviderError.unsupportedYAML("payload 必须是单行字符串列表")
-                        }
-                        payload.append(try providerScalar(splitComment(String(text.dropFirst())).content))
-                    }
-                    definition.payload = payload
-                } else {
-                    guard children.isEmpty else { throw RuleProviderError.unsupportedYAML("多行流式 payload") }
-                    definition.payload = try providerPayload(pair.value)
-                }
-                continue
-            }
-            guard children.isEmpty else { throw RuleProviderError.unsupportedYAML("多行字段 \(key)") }
-            if key == "interval" {
-                let raw = pair.value.hasPrefix("'") || pair.value.hasPrefix("\"") ? try providerScalar(pair.value) : pair.value
-                guard raw.range(of: "^-?[0-9]+$", options: .regularExpression) != nil, let value = Int(raw) else {
-                    throw RuleProviderError.unsupportedYAML("interval 必须是整数")
-                }
-                definition.interval = value
-            } else {
-                let value = try providerScalar(pair.value)
-                switch key {
-                case "type": definition.type = value
-                case "behavior": definition.behavior = value
-                case "format": definition.format = value
-                case "url": definition.url = value
-                case "path": definition.path = value
-                default: break
-                }
-            }
-        }
-        return ProviderBlock(definition: definition, start: start, end: end, indent: indent,
-                             fieldIndent: fieldIndent ?? indent + 2, managedLines: managedLines)
-    }
-
-    /// A block key separator, not a colon embedded in a quoted name or URL.
-    private static func providerPair(_ text: String) throws -> (key: String, value: String) {
-        var quote: Character?
-        var escaped = false
-        for i in text.indices {
-            let c = text[i]
-            if escaped { escaped = false; continue }
-            if quote == "\"", c == "\\" { escaped = true; continue }
-            if let q = quote {
-                if c == q { quote = nil }
-            } else if c == "'" || c == "\"" {
-                quote = c
-            } else if c == ":" {
-                let next = text.index(after: i)
-                if next == text.endIndex || text[next].isWhitespace {
-                    return (String(text[..<i]).trimmingCharacters(in: .whitespaces), String(text[next...]).trimmingCharacters(in: .whitespaces))
-                }
-            }
-        }
-        throw RuleProviderError.unsupportedYAML("无法解析映射键")
-    }
-
-    /// Accept only scalars whose decoded value is known exactly. No anchors, tags,
-    /// aliases, multiline folding, implicit nulls, or nested collections.
-    private static func providerScalar(_ raw: String) throws -> String {
-        let text = raw.trimmingCharacters(in: .whitespaces)
-        if text.hasPrefix("\""), let value = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: .fragmentsAllowed) as? String {
-            return value
-        }
-        if text.hasPrefix("'"), text.hasSuffix("'"), text.count >= 2 {
-            let inner = String(text.dropFirst().dropLast())
-            guard !inner.replacingOccurrences(of: "''", with: "").contains("'") else { throw RuleProviderError.unsupportedYAML("单引号字符串") }
-            return inner.replacingOccurrences(of: "''", with: "'")
-        }
-        let indicators: Set<Character> = ["-", "?", ":", ",", "[", "]", "{", "}", "#", "&", "*", "!", "|", ">", "'", "\"", "%", "@", "`"]
-        let implicit = ["null", "~", "true", "false", "yes", "no", "on", "off"]
-        guard let first = text.first, !indicators.contains(first),
-              !text.contains("'") && !text.contains("\""), !text.contains(": "), !text.hasSuffix(":"),
-              !implicit.contains(text.lowercased()), Double(text) == nil,
-              !text.contains(where: { $0.isNewline }) else { throw RuleProviderError.unsupportedYAML("需要普通或带引号的单行字符串") }
-        return text
-    }
-
-    private static func providerPayload(_ raw: String) throws -> [String] {
-        guard raw.hasPrefix("["), raw.hasSuffix("]") else { throw RuleProviderError.unsupportedYAML("payload 必须是字符串列表") }
-        let inner = String(raw.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
-        if inner.isEmpty { return [] }
-        // Unlike splitFlowSequence, do not silently discard empty items or unmatched quotes.
-        var items: [String] = []
-        var start = inner.startIndex
-        var quote: Character?
-        var escaped = false
-        for i in inner.indices {
-            let c = inner[i]
-            if escaped { escaped = false; continue }
-            if quote == "\"", c == "\\" { escaped = true; continue }
-            if let q = quote {
-                if c == q { quote = nil }
-            } else if c == "'" || c == "\"" {
-                quote = c
-            } else if c == "," {
-                items.append(try providerScalar(String(inner[start..<i])))
-                start = inner.index(after: i)
-            } else if "[]{}".contains(c) {
-                throw RuleProviderError.unsupportedYAML("嵌套 payload")
-            }
-        }
-        guard quote == nil else { throw RuleProviderError.unsupportedYAML("未闭合的 payload 字符串") }
-        items.append(try providerScalar(String(inner[start...])))
-        return items
-    }
-
-    private static func singleQuote(_ value: String) -> String {
-        "'\(value.replacingOccurrences(of: "'", with: "''"))'"
-    }
-
-    /// 以 JSON/YAML 双引号字符串输出（用于流式数组或包含控制字符的标量）
-    static func quote(_ rule: String) -> String {
-        let data = try! JSONSerialization.data(withJSONObject: rule, options: [.fragmentsAllowed, .withoutEscapingSlashes])
-        return String(decoding: data, as: UTF8.self)
     }
 }
