@@ -113,6 +113,7 @@ struct SettingsTab: View {
                                 NSWorkspace.shared.open(AppPaths.base)
                             }
                             Button("打开内核日志") { NSWorkspace.shared.open(AppPaths.coreLog) }
+                            Button("mihomo 配置文档") { NSWorkspace.shared.open(URL(string: "https://wiki.metacubex.one/config/")!) }
                         } label: { Image(systemName: "ellipsis.circle") }
                             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                             .help("内核操作").accessibilityLabel("内核操作")
@@ -162,6 +163,7 @@ private struct BypassPage: View {
                     }
                 }
                 .buttonStyle(.borderless)
+                .toolbarAction(prominent: true)
             }
             VStack(alignment: .leading, spacing: Theme.Space.s) {
                 TextEditor(text: $state.bypassText)

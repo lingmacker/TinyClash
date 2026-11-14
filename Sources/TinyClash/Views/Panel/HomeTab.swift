@@ -5,34 +5,28 @@ struct HomeTab: View {
     @Environment(AppState.self) private var state
 
     var body: some View {
-        VStack(spacing: 0) {
+        // 面板高度固定：内容至少撑满可视高度，流量图吸收剩余空间，底部不留空白；
+        // 出现错误横幅等内容放不下时仍可滚动
+        GeometryReader { geo in
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Space.m) {
                     if state.profiles.isEmpty {
                         emptyState
                     } else {
                         controls
-                        if state.isRunning { TrafficPanel() }
+                        if state.isRunning {
+                            TrafficPanel()
+                        } else {
+                            Spacer(minLength: 0)
+                        }
                         actions
                     }
                 }
                 .padding(14)
+                .frame(minHeight: geo.size.height, alignment: .top)
             }
             .scrollBounceBehavior(.basedOnSize)
-            footer
         }
-    }
-
-    private var footer: some View {
-        HStack {
-            Link("配置文档", destination: URL(string: "https://wiki.metacubex.one/config/")!)
-                .font(.caption)
-                .foregroundStyle(Theme.accentForeground)
-            Spacer()
-        }
-        .padding(.horizontal, 18)
-        .padding(.top, 8)
-        .padding(.bottom, 12)
     }
 
     // MARK: - 主开关
@@ -144,7 +138,7 @@ private struct TrafficPanel: View {
                 SpeedReadout(label: "上传", icon: "arrow.up", value: state.upSpeed, tint: Theme.upload)
                     .frame(width: 130, alignment: .leading)
             }
-            TrafficChart(points: state.trafficHistory).frame(height: 72)
+            TrafficChart(points: state.trafficHistory).frame(minHeight: 72, maxHeight: .infinity)
             HStack(spacing: 0) {
                 fact("连接", "\(state.connections.count)")
                 fact("内存", Format.bytes(state.memory))

@@ -37,6 +37,7 @@ struct RequestLogsPage: View {
             SubpageHeader(title: "请求日志", back: back) {
                 Button("清空") { state.clearRequestLog() }
                     .buttonStyle(.borderless)
+                    .toolbarAction(prominent: true)
                     .disabled(state.requestLog.entries.isEmpty)
                     .help("只清空内存中的日志，不断开连接；已有活跃连接不会被重复加入")
             }

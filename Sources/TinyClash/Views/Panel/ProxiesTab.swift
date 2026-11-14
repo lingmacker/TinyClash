@@ -50,17 +50,19 @@ struct ProxiesTab: View {
                 Text("\(state.visibleGroups.count) 个策略组").font(.caption).foregroundStyle(.secondary)
                 Spacer(minLength: 4)
                 Button {
-                    Task { for group in state.visibleGroups { await state.testGroup(group.name) } }
-                } label: { Image(systemName: "bolt.fill") }
-                    .help("全部测速")
-                    .accessibilityLabel("全部测速")
+                    Task { await state.testGroups(state.visibleGroups.map(\.name)) }
+                } label: { TestingLabel(testing: !state.testingGroups.isEmpty) }
+                    .toolbarAction()
+                    .help("测试全部策略组的延迟")
                     .disabled(!state.isRunning || state.visibleGroups.allSatisfy { state.pendingNewGroupNames.contains($0.name) } || !state.testingGroups.isEmpty)
                 Button { route = .requests } label: {
                     Label("请求日志", systemImage: "list.bullet.rectangle")
                 }
+                .toolbarAction()
                 Button { route = .add } label: {
                     Label("添加策略组", systemImage: "plus")
                 }
+                .toolbarAction(prominent: true)
                 .disabled(!canEditGroups)
                 if state.isEditingSelectedProfile || state.coreState == .starting {
                     ProgressView().controlSize(.mini)
@@ -170,9 +172,13 @@ private struct GroupCard: View {
             }
             HStack(spacing: 6) {
                 let isPending = state.pendingNewGroupNames.contains(group.name)
-                Text(isPending ? "待重启生效" : (group.now ?? "—")).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                // 当前选择是子分组时一路解析到最终节点，与首页出站路径一致
+                let chain = Array(state.resolvedChain(from: group).dropFirst())
+                Text(isPending ? "待重启生效" : (chain.isEmpty ? "—" : chain.joined(separator: " › ")))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                    .help(chain.joined(separator: " › "))
                 Spacer(minLength: 4)
-                if !isPending, let now = group.now { LatencyLabel(ms: state.delay(of: now)) }
+                if !isPending, let last = chain.last { LatencyLabel(ms: state.delay(of: last)) }
             }
             HealthStrip(members: group.all ?? [])
         }
@@ -224,6 +230,13 @@ private struct GroupDetail: View {
     @State private var confirmingDelete: String?
     @AppStorage("sortNodesByDelay") private var sortByDelay = false
 
+    /// 组内节点协议都相同时，每行重复协议名没有信息量，只在混用时显示
+    private var showsProtocol: Bool {
+        let builtin: Set = ["Direct", "Reject", "RejectDrop", "Pass", "Compatible"]
+        return Set((group.all ?? []).compactMap { state.proxies[$0] }
+            .filter { !$0.isGroup && !builtin.contains($0.type) }.map(\.type)).count > 1
+    }
+
     private var members: [String] {
         let all = group.all ?? []
         let filtered = search.isEmpty ? all : all.filter { $0.localizedCaseInsensitiveContains(search) }
@@ -239,38 +252,34 @@ private struct GroupDetail: View {
     var body: some View {
         VStack(spacing: 0) {
             SubpageHeader(title: group.name, back: back) {
+                // 只保留两个常用操作；编辑、删除这类低频操作收进 ⋯ 菜单，删除不再紧挨着其他按钮
                 HStack(spacing: 10) {
-                    if group.name != "GLOBAL" {
+                    let testing = state.testingGroups.contains(group.name)
+                    Button { Task { await state.testGroup(group.name) } } label: { TestingLabel(testing: testing) }
+                        .buttonStyle(.borderless)
+                        .toolbarAction(prominent: true)
+                        .help("测试本组全部节点的延迟")
+                        .disabled(testing || state.pendingNewGroupNames.contains(group.name))
+                    Menu {
+                        Toggle("按延迟排序", isOn: $sortByDelay)
+                        if group.name != "GLOBAL" {
+                            Divider()
+                            Button("编辑策略组…", action: edit).disabled(!canEdit)
+                            Button("删除策略组…", role: .destructive) { confirmingDelete = group.name }
+                                .disabled(!canEdit)
+                        }
+                    } label: {
                         if state.isEditingSelectedProfile {
                             ProgressView().controlSize(.small)
                         } else {
-                            Button(action: edit) { Image(systemName: "pencil") }
-                                .buttonStyle(.borderless)
-                                .help("编辑策略组")
-                                .accessibilityLabel("编辑策略组")
-                                .disabled(!canEdit)
-                            Button(role: .destructive) { confirmingDelete = group.name } label: {
-                                Image(systemName: "trash")
-                            }
-                            .buttonStyle(.borderless)
-                            .help("从配置中删除策略组")
-                            .accessibilityLabel("删除策略组")
-                            .disabled(!canEdit)
+                            Image(systemName: "ellipsis.circle")
                         }
                     }
-                    Button { sortByDelay.toggle() } label: {
-                        Image(systemName: sortByDelay ? "arrow.up.arrow.down.circle.fill" : "arrow.up.arrow.down.circle")
-                    }
-                    .buttonStyle(.borderless)
-                    .help(sortByDelay ? "按原顺序显示" : "按延迟排序")
-                    .accessibilityLabel(sortByDelay ? "按原顺序显示" : "按延迟排序")
-                    if state.testingGroups.contains(group.name) {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Button { Task { await state.testGroup(group.name) } } label: { Label("测速", systemImage: "bolt.fill") }
-                            .buttonStyle(.borderless)
-                            .disabled(state.pendingNewGroupNames.contains(group.name))
-                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("排序与编辑")
+                    .accessibilityLabel("「\(group.name)」的更多操作")
                 }
             }
             if (group.all?.count ?? 0) > 10 {
@@ -295,7 +304,7 @@ private struct GroupDetail: View {
             Divider()
             ScrollView {
                 LazyVStack(spacing: 4) {
-                    ForEach(members, id: \.self) { NodeRow(name: $0, group: group) }
+                    ForEach(members, id: \.self) { NodeRow(name: $0, group: group, showsProtocol: showsProtocol) }
                 }
                 .padding(14)
             }
@@ -315,6 +324,7 @@ private struct NodeRow: View {
     @Environment(AppState.self) private var state
     let name: String
     let group: ProxyItem
+    var showsProtocol = true
     @State private var hovering = false
 
     var body: some View {
@@ -330,7 +340,9 @@ private struct NodeRow: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 Text(name).font(.callout.weight(selected ? .semibold : .regular)).lineLimit(1).truncationMode(.middle)
-                Text(detail(item)).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                if let detail = detail(item) {
+                    Text(detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
             }
             Spacer(minLength: 6)
             if state.testingProxies.contains(name) {
@@ -366,10 +378,22 @@ private struct NodeRow: View {
         Task { await state.select(group: group.name, proxy: name) }
     }
 
-    private func detail(_ item: ProxyItem?) -> String {
-        guard let item else { return "" }
-        if item.isGroup { return "分组 → \(item.now ?? "—")" }
-        return item.udp == true ? "\(item.type) · UDP" : item.type
+    private func detail(_ item: ProxyItem?) -> String? {
+        guard let item else { return nil }
+        if item.isGroup { return "分组 › \(item.now ?? "—")" }
+        return showsProtocol ? (item.udp == true ? "\(item.type) · UDP" : item.type) : nil
+    }
+}
+
+/// 测速按钮：测速中在原位置叠加进度圈，文字保留占位，按钮宽度不变，旁边的按钮不会移动
+private struct TestingLabel: View {
+    var testing: Bool
+
+    var body: some View {
+        Label("测速", systemImage: "bolt.fill")
+            .opacity(testing ? 0 : 1)
+            .overlay { if testing { ProgressView().controlSize(.small) } }
+            .accessibilityLabel(testing ? "正在测速" : "测速")
     }
 }
 

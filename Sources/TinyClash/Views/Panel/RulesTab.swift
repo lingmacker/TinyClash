@@ -74,18 +74,20 @@ struct RulesTab: View {
                           : "按内核匹配顺序显示；RuleSet 显示集合引用，不展开集合内的条目")
                 Spacer(minLength: 4)
                 Button { Task { await loadRules() } } label: {
-                    Image(systemName: "arrow.clockwise")
+                    Label("刷新", systemImage: "arrow.clockwise")
                 }
+                .toolbarAction()
                 .help(state.needsCoreRestart ? "从配置文件刷新规则（需重启内核后生效）" : "从内核刷新规则")
-                .accessibilityLabel("刷新规则")
                 .disabled(!state.isRunning || loading)
                 Button { route = .providers } label: {
                     Label("规则集", systemImage: "square.stack.3d.up")
                 }
+                .toolbarAction()
                 .help("管理当前配置的 rule-providers")
                 Button { route = .add } label: {
                     Label("添加规则", systemImage: "plus")
                 }
+                .toolbarAction(prominent: true)
                 .disabled(!canEditRules)
                 if state.isEditingSelectedProfile {
                     ProgressView().controlSize(.mini)
@@ -201,9 +203,12 @@ struct RulesTab: View {
 private struct RuleCard: View {
     var rule: RuleItem
 
+    private var typeText: String { ConfigOverlay.yamlRuleType(rule.type) }
+
     private var payloadText: String {
-        if !rule.payload.isEmpty { return rule.payload }
-        return rule.type.lowercased() == "match" ? "其他所有流量" : "—"
+        // 内核把 GeoIP 国家代码转成小写，按惯例显示为大写
+        if !rule.payload.isEmpty { return typeText == "GEOIP" ? rule.payload.uppercased() : rule.payload }
+        return typeText == "MATCH" ? "其他所有流量" : "—"
     }
 
     var body: some View {
@@ -222,7 +227,7 @@ private struct RuleCard: View {
                     .fixedSize()
             }
             HStack(spacing: 8) {
-                Tag(text: rule.type, cornerRadius: 4)
+                Tag(text: typeText, cornerRadius: 4)
                     .fixedSize()
                 Spacer(minLength: 8)
                 Text(rule.proxy)

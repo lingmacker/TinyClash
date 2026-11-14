@@ -126,9 +126,7 @@ struct MenuPanel: View {
             guard !Task.isCancelled else { return }
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             guard !Task.isCancelled else { return }
-            await withTaskGroup(of: Void.self) { g in
-                for group in state.visibleGroups { g.addTask { await state.testGroup(group.name) } }
-            }
+            await state.testGroups(state.visibleGroups.map(\.name))
             NSLog("TinyClash uiCycleTabs: start")
             for t in PanelTab.allCases {
                 tab = t
@@ -271,6 +269,7 @@ struct SubpageHeader<Trailing: View>: View {
                 }
             }
             .buttonStyle(.borderless)
+            .toolbarAction(prominent: true)
             .keyboardShortcut(.cancelAction)
             Text(title).font(.headline).lineLimit(1).frame(maxWidth: .infinity)
             trailing.frame(minWidth: 50, alignment: .trailing)

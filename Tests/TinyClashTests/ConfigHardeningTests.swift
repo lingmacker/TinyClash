@@ -91,6 +91,16 @@ final class ConfigHardeningTests: XCTestCase {
 
     // MARK: Rules & sections
 
+    func testRuntimeRuleTypesDisplayInYAMLSpelling() {
+        let pairs = ["DomainSuffix": "DOMAIN-SUFFIX", "IPCIDR": "IP-CIDR", "GeoIP": "GEOIP", "Process": "PROCESS-NAME",
+                     "RuleSet": "RULE-SET", "Match": "MATCH", "SrcIPCIDR": "SRC-IP-CIDR", "Custom": "CUSTOM"]
+        for (api, yaml) in pairs { XCTAssertEqual(ConfigOverlay.yamlRuleType(api), yaml, api) }
+        // Round trip with the YAML → runtime mapping used for matching.
+        for name in RuleEditorPage.types.map(\.name) {
+            XCTAssertEqual(ConfigOverlay.yamlRuleType(ConfigOverlay.apiRuleType(name)), name)
+        }
+    }
+
     func testStaleIndexDoesNotDeleteWrongCompoundRule() throws {
         let yaml = """
         rules:

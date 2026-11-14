@@ -52,13 +52,14 @@ struct RuleProvidersPage: View {
             SubpageHeader(title: "规则集", back: back) {
                 Button { route = .add } label: { Label("添加", systemImage: "plus") }
                     .buttonStyle(.borderless)
+                    .toolbarAction(prominent: true)
                     .disabled(!state.canEditSelectedProfile)
             }
             HStack(spacing: 10) {
                 Text("\(definitions.count) 个规则集").foregroundStyle(.secondary)
                 Spacer(minLength: 4)
-                Button { Task { await load() } } label: { Image(systemName: "arrow.clockwise") }
-                    .accessibilityLabel("刷新规则集")
+                Button { Task { await load() } } label: { Label("刷新", systemImage: "arrow.clockwise") }
+                    .toolbarAction()
                     .help("重新读取配置与规则集状态，不下载远程内容")
                     .disabled(loading || state.busy || state.isEditingSelectedProfile)
                 Button { update() } label: {
@@ -68,6 +69,7 @@ struct RuleProvidersPage: View {
                         Label("更新全部", systemImage: "arrow.down.circle")
                     }
                 }
+                .toolbarAction()
                 .help("下载已加载的 HTTP 规则集，不改写 YAML 或重启内核")
                 .disabled(!canUpdate || !providers.values.contains(where: \.isRemoteRuleProvider))
             }
@@ -119,7 +121,7 @@ struct RuleProvidersPage: View {
 
     @ViewBuilder private var statusNotice: some View {
         if state.needsCoreRestart {
-            notice("配置已修改；重启内核后显示条目数并可更新远程内容。", color: Theme.warning)
+            notice("配置已修改；重启内核后显示条目数并可更新远程内容。", color: Theme.warningText)
         } else if !state.isRunning {
             notice("内核未运行；仍可管理配置，启动后可更新远程内容。")
         }
@@ -313,6 +315,7 @@ struct RuleProviderEditorPage: View {
                                 .disabled(!canEdit)
                         }
                         Button(original == nil ? "添加" : "保存", action: save)
+                            .toolbarAction(prominent: true)
                             .keyboardShortcut(.defaultAction)
                             .disabled(!canEdit || validationMessage != nil || definition == original)
                     }

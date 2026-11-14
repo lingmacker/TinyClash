@@ -677,7 +677,13 @@ final class AppState {
 
     /// 从主策略组沿 now 一路解析到最终节点，例如 [Auto, 香港, 香港 ISP 6]
     var routeChain: [String] {
-        guard var item = primaryGroup else { return [] }
+        guard let group = primaryGroup else { return [] }
+        return resolvedChain(from: group)
+    }
+
+    /// 从任意策略组沿 now 解析到最终节点（含起点），用于卡片显示实际出站
+    func resolvedChain(from group: ProxyItem) -> [String] {
+        var item = group
         var chain = [item.name]
         while let next = item.now, !chain.contains(next), chain.count < 6 {
             chain.append(next)
@@ -697,6 +703,21 @@ final class AppState {
         _ = try? await api.groupDelay(group: group, url: url, timeout: delayTimeout)
         testingGroups.remove(group)
         await refreshProxies()
+    }
+
+    /// 多个策略组同时测速；限制并发数，避免几百个节点探测同时发出
+    func testGroups(_ names: [String], maxConcurrent: Int = 4) async {
+        let names = names.filter { !pendingNewGroupNames.contains($0) }
+        await withTaskGroup(of: Void.self) { group in
+            var pending = names.makeIterator()
+            for _ in 0..<maxConcurrent {
+                guard let name = pending.next() else { break }
+                group.addTask { await self.testGroup(name) }
+            }
+            while await group.next() != nil {
+                if let name = pending.next() { group.addTask { await self.testGroup(name) } }
+            }
+        }
     }
 
     func testProxy(_ name: String) async {

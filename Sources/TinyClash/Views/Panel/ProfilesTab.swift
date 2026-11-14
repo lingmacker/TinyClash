@@ -124,7 +124,7 @@ private struct ProfileCard: View {
                         Text(profile.name).font(.callout.weight(.semibold)).lineLimit(1).truncationMode(.middle)
                         Tag(text: profile.kind == .remote ? "订阅" : "本地")
                         if locallyModified {
-                            Tag(text: "本地已修改", tint: Theme.warning)
+                            Tag(text: "本地已修改", tint: Theme.warningText)
                                 .help("此订阅在本地改过，已暂停自动更新；手动更新会覆盖修改（覆盖前自动备份）")
                         }
                     }
@@ -134,7 +134,7 @@ private struct ProfileCard: View {
                         }
                         if let exp = profile.subscription?.expire {
                             Text("到期 \(exp.formatted(date: .numeric, time: .omitted))")
-                                .foregroundStyle(exp.timeIntervalSinceNow < 7 * 86400 ? Theme.warning : .secondary)
+                                .foregroundStyle(exp.timeIntervalSinceNow < 7 * 86400 ? Theme.warningText : .secondary)
                         }
                     }
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
@@ -317,6 +317,7 @@ private struct EditProfilePage: View {
                     }
                 }
                 .buttonStyle(.borderless)
+                .toolbarAction(prominent: true)
                 .keyboardShortcut(.defaultAction)
                 .disabled(profile.name.trimmingCharacters(in: .whitespaces).isEmpty)
             }

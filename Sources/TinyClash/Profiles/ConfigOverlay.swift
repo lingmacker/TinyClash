@@ -61,6 +61,21 @@ enum ConfigOverlay {
         }
     }
 
+    /// 内核 /rules 返回的类型名（DomainSuffix、IPCIDR…）还原成 YAML 写法，界面与配置文件用同一套名称
+    static func yamlRuleType(_ apiType: String) -> String {
+        let names: [String: String] = [
+            "domain": "DOMAIN", "domainsuffix": "DOMAIN-SUFFIX", "domainkeyword": "DOMAIN-KEYWORD",
+            "domainregex": "DOMAIN-REGEX", "domainwildcard": "DOMAIN-WILDCARD", "geosite": "GEOSITE",
+            "geoip": "GEOIP", "ipcidr": "IP-CIDR", "ipcidr6": "IP-CIDR6", "ipasn": "IP-ASN",
+            "ipsuffix": "IP-SUFFIX", "srcipcidr": "SRC-IP-CIDR", "srcport": "SRC-PORT", "dstport": "DST-PORT",
+            "inport": "IN-PORT", "intype": "IN-TYPE", "inuser": "IN-USER", "inname": "IN-NAME",
+            "process": "PROCESS-NAME", "processname": "PROCESS-NAME", "processpath": "PROCESS-PATH",
+            "network": "NETWORK", "uid": "UID", "ruleset": "RULE-SET", "and": "AND", "or": "OR", "not": "NOT",
+            "subrule": "SUB-RULE", "match": "MATCH",
+        ]
+        return names[normalizeType(apiType)] ?? apiType.uppercased()
+    }
+
     enum OverlayError: LocalizedError {
         case flowStyle(String)
         case duplicateGroup(String)

@@ -133,6 +133,7 @@ struct RuleEditorPage: View {
                         }
                         Button(editing == nil ? "添加" : "保存") { save() }
                             .buttonStyle(.borderless)
+                            .toolbarAction(prominent: true)
                             .keyboardShortcut(.defaultAction)
                             .disabled(!isValid || !canEdit || rule == editing?.original)
                     }
@@ -323,6 +324,7 @@ struct GroupEditorPage: View {
                         }
                         Button(original == nil ? "添加" : "保存") { save() }
                             .buttonStyle(.borderless)
+                            .toolbarAction(prominent: true)
                             .keyboardShortcut(.defaultAction)
                             .disabled(validationMessage != nil || !canEdit || group == original)
                     }
@@ -457,7 +459,7 @@ struct ConfigWriteNotice: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("直接写入「\(state.selectedProfile?.name ?? "当前配置")」的 YAML 文件。\(placement)保存前用内核校验；内核运行时不会自动重启，可在全部改完后点击顶部「需重启生效」应用更改。")
             if state.selectedProfile?.kind == .remote {
-                Text("订阅更新会覆盖本地修改：修改后自动更新会暂停，手动更新前会提示并备份。").foregroundStyle(Theme.warning)
+                Text("订阅更新会覆盖本地修改：修改后自动更新会暂停，手动更新前会提示并备份。").foregroundStyle(Theme.warningText)
             }
         }
         .font(.caption2).foregroundStyle(.secondary)

@@ -70,6 +70,10 @@ enum Theme {
     static let upload = Color(nsColor: .systemTeal)
     static let active = Color(nsColor: .systemGreen)
     static let warning = Color(nsColor: .systemOrange)
+    /// 警示小字：浅色外观下 systemOrange 在白底上对比度不足，改用深橙（≥4.5:1）
+    static let warningText = Color(nsColor: NSColor(name: nil) { a in
+        a.isDark ? .systemOrange : NSColor(srgbRed: 158 / 255, green: 84 / 255, blue: 0, alpha: 1)
+    })
     static let failure = Color(nsColor: .systemRed)
 
     /// 策略名的颜色：直连绿、拒绝红、其余用可读的暖橙文字色
@@ -127,6 +131,12 @@ struct PanelBackground: ViewModifier {
 extension View {
     func panel(padding: CGFloat = Theme.Space.l) -> some View { modifier(PanelBackground(padding: padding)) }
 
+    /// 列表顶部工具栏的文字操作：统一图标 + 文字；主操作用暖橙文字色，其余用主文字色。
+    /// 不直接用 OrangePulse 作文字色，它在浅色画布上的小字对比度只有约 2.6:1。
+    func toolbarAction(prominent: Bool = false) -> some View {
+        modifier(ToolbarActionStyle(prominent: prominent))
+    }
+
     /// 列表卡片：面板底色 + tile 圆角 + 细描边
     func card(cornerRadius: CGFloat = Theme.Radius.tile) -> some View {
         background(Theme.panel, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
@@ -168,6 +178,18 @@ struct PressableStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
             .opacity(configuration.isPressed ? 0.85 : 1)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+struct ToolbarActionStyle: ViewModifier {
+    @Environment(\.isEnabled) private var isEnabled
+    var prominent: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .labelStyle(.titleAndIcon)
+            .foregroundStyle(!isEnabled ? AnyShapeStyle(.tertiary)
+                             : prominent ? AnyShapeStyle(Theme.accentForeground) : AnyShapeStyle(.primary))
     }
 }
 

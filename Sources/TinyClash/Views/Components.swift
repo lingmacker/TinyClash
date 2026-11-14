@@ -260,9 +260,9 @@ struct StatusBadge: View {
     private var color: Color {
         switch state.coreState {
         case .running:
-            if state.needsCoreRestart { return Theme.warning }
+            if state.needsCoreRestart { return Theme.warningText }
             return state.isProxying ? Theme.statusActive : .secondary
-        case .starting: return Theme.warning
+        case .starting: return Theme.warningText
         case .stopped: return .secondary
         case .failed: return Theme.failure
         }
