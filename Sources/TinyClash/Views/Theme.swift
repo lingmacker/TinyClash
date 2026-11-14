@@ -17,12 +17,18 @@ enum Theme {
         static let xl: CGFloat = 24
     }
 
-    /// 卡片面板底色：半透明磨砂，贴合毛玻璃窗口背景
-    static let panel = Color(nsColor: NSColor(name: nil) { a in
-        a.isDark ? NSColor(white: 1, alpha: 0.08) : NSColor(white: 1, alpha: 0.58)
+    /// 不透明画布，避免桌面颜色透入菜单栏面板。
+    static let canvas = Color(nsColor: NSColor(name: nil) { a in
+        a.isDark ? NSColor(srgbRed: 0.105, green: 0.108, blue: 0.118, alpha: 1)
+                 : NSColor(srgbRed: 0.955, green: 0.960, blue: 0.970, alpha: 1)
     })
 
-    /// 半透明卡片的细描边，在浅色或深色桌面背景上保持清晰边界
+    /// 不透明卡片底色，用明度区分画布与内容。
+    static let panel = Color(nsColor: NSColor(name: nil) { a in
+        a.isDark ? NSColor(srgbRed: 0.165, green: 0.168, blue: 0.180, alpha: 1) : .white
+    })
+
+    /// 卡片细描边，保留克制的层次。
     static let panelBorder = Color(nsColor: NSColor(name: nil) { a in
         a.isDark ? NSColor(white: 1, alpha: 0.10) : NSColor(white: 0, alpha: 0.06)
     })
@@ -36,9 +42,17 @@ enum Theme {
     private static let accentColor = NSColor(srgbRed: 245 / 255, green: 123 / 255, blue: 63 / 255, alpha: 1)
     static let accent = Color(nsColor: accentColor)
     static let accentHighlight = Color(.sRGB, red: 1, green: 150 / 255, blue: 97 / 255, opacity: 1)
-    static let accentForeground = Color(.sRGB, red: 41 / 255, green: 44 / 255, blue: 49 / 255, opacity: 1)
+    /// 选中态使用浅杏色底与深暖橙文字；深色外观保留柔和的暖色层次。
+    static let controlFill = Color(nsColor: NSColor(name: nil) { a in
+        a.isDark ? NSColor(srgbRed: 73 / 255, green: 52 / 255, blue: 41 / 255, alpha: 1)
+                 : NSColor(srgbRed: 252 / 255, green: 233 / 255, blue: 221 / 255, alpha: 1)
+    })
+    static let accentForeground = Color(nsColor: NSColor(name: nil) { a in
+        a.isDark ? NSColor(srgbRed: 255 / 255, green: 211 / 255, blue: 183 / 255, alpha: 1)
+                 : NSColor(srgbRed: 140 / 255, green: 67 / 255, blue: 28 / 255, alpha: 1)
+    })
 
-    /// 接管状态使用不透明底色，避免毛玻璃背后的桌面影响小字对比度。
+    /// 接管状态使用不透明底色，保持稳定的小字对比度。
     static let statusActive = Color(nsColor: NSColor(name: nil) { a in
         a.isDark ? NSColor(srgbRed: 167 / 255, green: 229 / 255, blue: 186 / 255, alpha: 1)
                  : NSColor(srgbRed: 20 / 255, green: 92 / 255, blue: 47 / 255, alpha: 1)
@@ -47,22 +61,6 @@ enum Theme {
         a.isDark ? NSColor(srgbRed: 24 / 255, green: 61 / 255, blue: 38 / 255, alpha: 1)
                  : NSColor(srgbRed: 220 / 255, green: 238 / 255, blue: 226 / 255, alpha: 1)
     })
-
-    /// 保留品牌橙色色相，并确保白色小字的对比度至少为 4.5:1。
-    static let controlFill: Color = {
-        var r = accentColor.redComponent
-        var g = accentColor.greenComponent
-        var b = accentColor.blueComponent
-        func linear(_ value: CGFloat) -> CGFloat {
-            value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
-        }
-        while 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b) > 0.183 {
-            r *= 0.99
-            g *= 0.99
-            b *= 0.99
-        }
-        return Color(.sRGB, red: r, green: g, blue: b, opacity: 1)
-    }()
 
     static let chartLabel = Color(nsColor: NSColor(name: nil) { a in
         a.isDark ? NSColor(white: 0.75, alpha: 1) : NSColor(white: 0.36, alpha: 1)
@@ -100,7 +98,7 @@ private extension NSAppearance {
     var isDark: Bool { bestMatch(from: [.darkAqua, .aqua]) == .darkAqua }
 }
 
-/// 半透明卡片面板：适配毛玻璃窗口底面，用细描边区分边界
+/// 不透明卡片面板，用细描边区分边界
 struct PanelBackground: ViewModifier {
     var padding: CGFloat = Theme.Space.l
 
@@ -113,27 +111,6 @@ struct PanelBackground: ViewModifier {
                 RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous)
                     .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
             )
-    }
-}
-
-/// 系统毛玻璃背景（用于独立窗口预览等不自带 NSPopover 底面的场景）
-struct VisualEffectBackground: NSViewRepresentable {
-    var material: NSVisualEffectView.Material = .popover
-    var blendingMode: NSVisualEffectView.BlendingMode = .behindWindow
-    var state: NSVisualEffectView.State = .active
-
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = material
-        view.blendingMode = blendingMode
-        view.state = state
-        return view
-    }
-
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {
-        view.material = material
-        view.blendingMode = blendingMode
-        view.state = state
     }
 }
 

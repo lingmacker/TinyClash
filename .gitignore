@@ -1,5 +1,6 @@
 .build/
 build/
+/vendor/
 .swiftpm/
 .vscode/
 .DS_Store

@@ -17,7 +17,6 @@ struct TinyClashApp: App {
         #if TINYCLASH_PREVIEW
         Window("TinyClash 面板预览", id: "panel-preview") {
             MenuPanel().environment(state)
-                .background(VisualEffectBackground().ignoresSafeArea())
         }
         .windowResizability(.contentSize)
         #endif

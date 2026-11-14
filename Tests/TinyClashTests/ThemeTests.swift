@@ -15,7 +15,7 @@ final class ThemeTests: XCTestCase {
         XCTAssertEqual(highlight.blueComponent, 97 / 255, accuracy: 0.0001)
     }
 
-    func testHeaderColorsMaintainReadableContrastInBothAppearances() throws {
+    func testStatusAndSelectedControlsMaintainReadableContrastInBothAppearances() throws {
         func luminance(_ color: NSColor) -> CGFloat {
             func linear(_ value: CGFloat) -> CGFloat {
                 value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
@@ -27,7 +27,7 @@ final class ThemeTests: XCTestCase {
         for name in [NSAppearance.Name.aqua, .darkAqua] {
             let appearance = try XCTUnwrap(NSAppearance(named: name))
             for (foreground, background) in [(Theme.statusActive, Theme.statusActiveFill),
-                                             (Theme.accentForeground, Theme.accent)] {
+                                             (Theme.accentForeground, Theme.controlFill)] {
                 var colors: [NSColor] = []
                 appearance.performAsCurrentDrawingAppearance {
                     colors = [foreground, background].compactMap { NSColor($0).usingColorSpace(.sRGB) }
@@ -41,7 +41,20 @@ final class ThemeTests: XCTestCase {
         }
     }
 
-    func testControlFillPreservesOrangeHueAndWhiteTextContrastInBothAppearances() throws {
+    func testCanvasAndPanelsAreOpaqueInBothAppearances() throws {
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            let appearance = try XCTUnwrap(NSAppearance(named: name))
+            for color in [Theme.canvas, Theme.panel, Theme.controlFill] {
+                var resolved: NSColor?
+                appearance.performAsCurrentDrawingAppearance {
+                    resolved = NSColor(color).usingColorSpace(.sRGB)
+                }
+                XCTAssertEqual(try XCTUnwrap(resolved).alphaComponent, 1)
+            }
+        }
+    }
+
+    func testControlFillUsesSoftWarmTonesInBothAppearances() throws {
         for name in [NSAppearance.Name.aqua, .darkAqua] {
             let appearance = try XCTUnwrap(NSAppearance(named: name))
             var resolved: NSColor?
@@ -49,16 +62,14 @@ final class ThemeTests: XCTestCase {
                 resolved = NSColor(Theme.controlFill).usingColorSpace(.sRGB)
             }
             let fill = try XCTUnwrap(resolved)
-            func linear(_ value: CGFloat) -> CGFloat {
-                value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+            XCTAssertGreaterThan(fill.redComponent, fill.greenComponent)
+            XCTAssertGreaterThan(fill.greenComponent, fill.blueComponent)
+            if name == .aqua {
+                XCTAssertGreaterThan(fill.blueComponent, 0.85)
+                XCTAssertLessThan(fill.redComponent - fill.blueComponent, 0.15)
+            } else {
+                XCTAssertLessThan(fill.redComponent, 0.35)
             }
-            let luminance = 0.2126 * linear(fill.redComponent)
-                + 0.7152 * linear(fill.greenComponent)
-                + 0.0722 * linear(fill.blueComponent)
-            XCTAssertGreaterThanOrEqual(1.05 / (luminance + 0.05), 4.5)
-            XCTAssertEqual(fill.greenComponent / fill.redComponent, 123 / 245, accuracy: 0.0001)
-            XCTAssertEqual(fill.blueComponent / fill.redComponent, 63 / 245, accuracy: 0.0001)
-            XCTAssertEqual(fill.alphaComponent, 1)
         }
     }
 }

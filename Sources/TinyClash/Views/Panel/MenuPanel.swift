@@ -94,6 +94,7 @@ struct MenuPanel: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(width: PanelMetrics.width, height: PanelMetrics.height)
+        .background(Theme.canvas.ignoresSafeArea())
         .accentColor(Theme.accent)
         .tint(Theme.accent)
         // 窗口打开时 AppKit 会把焦点给第一个输入框并全选文字，这里清掉，避免误输入
@@ -149,7 +150,7 @@ struct MenuPanel: View {
                 .foregroundStyle(Theme.accentForeground)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
+                .background(Theme.controlFill, in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
                         .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
@@ -176,7 +177,7 @@ struct MenuPanel: View {
                     .foregroundStyle(tab == t ? AnyShapeStyle(Theme.accentForeground) : AnyShapeStyle(.primary))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 6)
-                    .background(tab == t ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.clear),
+                    .background(tab == t ? AnyShapeStyle(Theme.controlFill) : AnyShapeStyle(Color.clear),
                                 in: RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
                     .contentShape(Rectangle())
                 }

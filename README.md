@@ -5,11 +5,21 @@
 ## 构建
 
 ```bash
-./scripts/build-app.sh                       # 自动下载最新 mihomo 并打包；连不上 GitHub 时用缓存的内核
+./scripts/build-app.sh                       # 按 dependencies.conf 下载依赖并打包，Geo 默认使用最新数据
 MIHOMO_VERSION=v1.19.34 ./scripts/build-app.sh
 MIHOMO_BIN=/path/to/mihomo ./scripts/build-app.sh
 open build/TinyClash.app
 ```
+
+第三方依赖版本统一配置在根目录的 [`dependencies.conf`](dependencies.conf)，修改后重新运行构建脚本即可升级：
+
+- `MIHOMO_VERSION`：mihomo Release 标签，当前为 `v1.19.34`。
+- `METACUBEXD_VERSION`：metacubexd Release 标签，当前为 `v1.274.6`。
+- `GEO_VERSION`：默认 `latest`，每次构建从 meta-rules-dat 最新 Release 刷新 Geo 数据；也可设置为 `release` 分支的完整提交哈希，固定快照并复用缓存。
+
+这三个值均可通过同名环境变量临时覆盖，`MIHOMO_BIN` 仍支持指定本地内核。mihomo 和 metacubexd 保持固定版本，不会自动升级；内核下载失败时不会改用其他版本。
+
+依赖按版本缓存在 `vendor/mihomo-<架构>-<版本>`、`vendor/geo/<latest 或提交哈希>/` 和 `vendor/ui/<版本>/`。固定版本使用独立缓存，Geo 的 `latest` 缓存每次构建都会刷新。`vendor/` 已加入 Git 忽略规则，`dependencies.conf` 则纳入版本控制；构建产物仍输出到 `build/`。旧的 `build/cache/` 或未带版本目录的依赖不会自动复用。
 
 ## 功能
 

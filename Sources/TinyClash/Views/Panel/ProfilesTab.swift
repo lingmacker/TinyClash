@@ -78,7 +78,7 @@ private struct ProfileFooterLabel: View {
         .foregroundStyle(prominent ? AnyShapeStyle(Theme.accentForeground) : AnyShapeStyle(.primary))
         .padding(.horizontal, 8)
         .frame(height: 24)
-        .background(prominent ? Theme.accent : Color(nsColor: .controlBackgroundColor),
+        .background(prominent ? Theme.controlFill : Color(nsColor: .controlBackgroundColor),
                     in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)

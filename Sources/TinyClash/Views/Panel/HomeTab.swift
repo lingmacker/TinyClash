@@ -177,7 +177,7 @@ private struct ModePicker: View {
                 } label: {
                     Text(mode.title)
                         .font(.callout.weight(selected ? .semibold : .medium))
-                        .foregroundStyle(selected ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
+                        .foregroundStyle(selected ? AnyShapeStyle(Theme.accentForeground) : AnyShapeStyle(.secondary))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 5)
                         .background(

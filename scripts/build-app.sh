@@ -1,13 +1,14 @@
 #!/bin/bash
 # 构建 TinyClash.app：编译 Swift、下载 mihomo 内核、打包并 ad-hoc 签名
-#   ./scripts/build-app.sh                 # 使用最新版 mihomo
+#   ./scripts/build-app.sh                 # 使用 dependencies.conf 配置的版本
 #   MIHOMO_VERSION=v1.19.34 ./scripts/build-app.sh
 #   MIHOMO_BIN=/path/to/mihomo ./scripts/build-app.sh   # 使用本地内核
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/dependencies.conf"
 APP="$ROOT/build/TinyClash.app"
-CACHE="$ROOT/build/cache"
+VENDOR="$ROOT/vendor"
 VERSION="${VERSION:-1.0.0}"
 ARCH="${TARGET_ARCH:-$(uname -m)}"
 case "$ARCH" in
@@ -30,22 +31,12 @@ else
 fi
 
 
-echo "==> 准备 mihomo 内核"
-mkdir -p "$CACHE"
+echo "==> 准备 mihomo 内核 ($MIHOMO_VERSION)"
+mkdir -p "$VENDOR"
 if [[ -n "${MIHOMO_BIN:-}" ]]; then
   CORE="$MIHOMO_BIN"
 else
-  if [[ -z "${MIHOMO_VERSION:-}" ]]; then
-    # API 容易被限流，改用 releases/latest 的跳转地址解析版本号
-    MIHOMO_VERSION="$(curl -sSI -m 15 https://github.com/MetaCubeX/mihomo/releases/latest 2>/dev/null | awk -F/ 'tolower($1) ~ /^location:/ {print $NF}' | tr -d '\r' || true)"
-    if [[ -z "$MIHOMO_VERSION" ]]; then
-      # 连不上 GitHub 时使用已缓存的最新内核
-      CACHED="$(ls -t "$CACHE"/mihomo-"$CORE_ARCH"-v* 2>/dev/null | grep -v '\.gz$' | head -1 || true)"
-      [[ -n "$CACHED" ]] && MIHOMO_VERSION="${CACHED##*-}" && echo "    无法访问 GitHub，使用缓存内核 $MIHOMO_VERSION"
-    fi
-  fi
-  [[ -n "$MIHOMO_VERSION" ]] || { echo "无法获取 mihomo 版本号，请设置 MIHOMO_VERSION"; exit 1; }
-  CORE="$CACHE/mihomo-$CORE_ARCH-$MIHOMO_VERSION"
+  CORE="$VENDOR/mihomo-$CORE_ARCH-$MIHOMO_VERSION"
   if [[ ! -x "$CORE" ]]; then
     URL="https://github.com/MetaCubeX/mihomo/releases/download/$MIHOMO_VERSION/mihomo-$CORE_ARCH-$MIHOMO_VERSION.gz"
     echo "    下载 $URL"
@@ -60,42 +51,44 @@ else
   file "$CORE"
 fi
 
-echo "==> 准备 Geo 数据库"
-# 内置 Geo 数据库，避免首次启动 / 校验配置时直连 GitHub 下载失败
-GEO_DIR="$CACHE/geo"
+echo "==> 准备 Geo 数据库 ($GEO_VERSION)"
+# latest 每次构建刷新；固定提交的快照仍可复用缓存。
+GEO_DIR="$VENDOR/geo/$GEO_VERSION"
+if [[ "$GEO_VERSION" == "latest" ]]; then
+  GEO_URL="https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest"
+else
+  GEO_URL="https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/$GEO_VERSION"
+fi
 mkdir -p "$GEO_DIR"
 for f in geoip.metadb geosite.dat geoip.dat; do
-  if [[ ! -s "$GEO_DIR/$f" ]]; then
+  if [[ "$GEO_VERSION" == "latest" || ! -s "$GEO_DIR/$f" ]]; then
     echo "    下载 $f"
-    curl -fSL --retry 3 -o "$GEO_DIR/$f.tmp" "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/$f"
+    curl -fSL --retry 3 -o "$GEO_DIR/$f.tmp" "$GEO_URL/$f"
     mv "$GEO_DIR/$f.tmp" "$GEO_DIR/$f"
   fi
 done
 
-echo "==> 准备 Web 面板 (metacubexd)"
-UI_DIR="$CACHE/ui"
+echo "==> 准备 Web 面板 (metacubexd $METACUBEXD_VERSION)"
+UI_DIR="$VENDOR/ui/$METACUBEXD_VERSION"
 if [[ ! -s "$UI_DIR/index.html" ]]; then
-  UI_TGZ="$CACHE/metacubexd.tgz.tmp"
-  UI_TMP="$CACHE/ui.tmp"
-  rm -rf "$UI_TMP" "$UI_TGZ"
+  mkdir -p "$VENDOR/ui"
+  UI_WORK="$(mktemp -d "$VENDOR/ui/.download.XXXXXX")"
+  UI_TGZ="$UI_WORK/compressed-dist.tgz"
+  UI_TMP="$UI_WORK/dist"
   mkdir -p "$UI_TMP"
-  UI_URL="https://github.com/MetaCubeX/metacubexd/releases/latest/download/compressed-dist.tgz"
+  UI_URL="https://github.com/MetaCubeX/metacubexd/releases/download/$METACUBEXD_VERSION/compressed-dist.tgz"
   echo "    下载 $UI_URL"
-  if curl -fSL --retry 3 -o "$UI_TGZ" "$UI_URL"; then
-    tar -xzf "$UI_TGZ" -C "$UI_TMP"
-    rm -f "$UI_TGZ"
+  if curl -fSL --retry 3 -o "$UI_TGZ" "$UI_URL" && tar -xzf "$UI_TGZ" -C "$UI_TMP"; then
     if [[ -s "$UI_TMP/index.html" ]]; then
       rm -rf "$UI_DIR"
       mv "$UI_TMP" "$UI_DIR"
     else
       echo "    警告: metacubexd 压缩包结构异常，跳过内置 Web 面板"
-      rm -rf "$UI_TMP"
     fi
   else
-    rm -f "$UI_TGZ"
-    rm -rf "$UI_TMP"
-    echo "    警告: 无法下载 metacubexd，Web 面板将回退到在线版本"
+    echo "    警告: 无法准备 metacubexd，Web 面板将回退到在线版本"
   fi
+  rm -rf "$UI_WORK"
 fi
 
 echo "==> 组装 $APP"
@@ -108,7 +101,7 @@ cp -R "$GEO_DIR" "$APP/Contents/Resources/geo"
 [[ -s "$UI_DIR/index.html" ]] && cp -R "$UI_DIR" "$APP/Contents/Resources/ui"
 
 echo "==> 编译图标与资源目录"
-ACTOOL_PLIST="$CACHE/actool-partial-info.plist"
+ACTOOL_PLIST="$ROOT/build/actool-partial-info.plist"
 XCODE_MAJOR="$(xcodebuild -version 2>/dev/null | awk '/^Xcode /{split($2,a,"."); print a[1]}' || echo 0)"
 if [[ "${XCODE_MAJOR:-0}" -ge 26 && -d "$ROOT/Resources/AppIcon.icon" ]]; then
   xcrun actool \

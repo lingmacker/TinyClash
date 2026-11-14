@@ -117,9 +117,9 @@ struct ToggleTile: View {
         } label: {
             HStack(spacing: Theme.Space.s + 2) {
                 ZStack {
-                    Circle().fill(isOn ? Color.white.opacity(0.22) : Theme.inset)
+                    Circle().fill(isOn ? Theme.accentForeground.opacity(0.08) : Theme.inset)
                     if working {
-                        ProgressView().controlSize(.small).tint(isOn ? .white : nil)
+                        ProgressView().controlSize(.small).tint(isOn ? Theme.accentForeground : nil)
                     } else {
                         Image(systemName: icon).font(.system(size: 14, weight: .semibold))
                     }
@@ -128,11 +128,11 @@ struct ToggleTile: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(.callout.weight(.semibold))
                     Text(isOn ? "已开启" : "已关闭").font(.caption)
-                        .foregroundStyle(isOn ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
+                        .foregroundStyle(isOn ? AnyShapeStyle(Theme.accentForeground) : AnyShapeStyle(.secondary))
                 }
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(isOn ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            .foregroundStyle(isOn ? AnyShapeStyle(Theme.accentForeground) : AnyShapeStyle(.primary))
             .padding(.horizontal, Theme.Space.m)
             .padding(.vertical, Theme.Space.s + 2)
             .frame(maxWidth: .infinity)

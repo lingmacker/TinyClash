@@ -2,7 +2,7 @@
 name: TinyClash
 description: Stash-inspired, restrained native macOS menu-bar controls for mihomo.
 colors:
-  canvas-light: "rgb(94.5% 94.9% 96.1%)"
+  canvas-light: "rgb(95.5% 96% 97%)"
   canvas-dark: "rgb(10.5% 10.8% 11.8%)"
   panel-light: "rgb(100% 100% 100%)"
   panel-dark: "rgb(16.5% 16.8% 18%)"
@@ -99,7 +99,7 @@ The neutral palette separates canvas, panel, and inset fill; OrangePulse orange 
 
 ### Primary
 
-- **OrangePulse accent** (`Theme.accent`, `#F57B3F`): slightly lightened toward the `#FF9661` end of the gradient in `Resources/AppIcon.icon/Assets/03 OrangePulse.svg`, with `Theme.accentHighlight` (`#FF9661`) supplying the light end of the app mark's pulse gradient. The menu panel sets both SwiftUI accent and tint so active navigation, selected nodes/profiles, links, buttons, and native switches inherit the same brand orange. Selected tabs use opaque accent fill with graphite content; selected node rows use accent at 12% opacity, and the terminal route segment uses 14%. Enabled toggle tiles and selected mode segments use `Theme.controlFill`, which darkens the brand orange in sRGB in fine 1% steps until relative luminance is at most 0.183. Its opaque white text therefore clears 4.5:1 contrast. The white icon-circle fill uses 22% opacity.
+- **OrangePulse accent** (`Theme.accent`, `#F57B3F`): retained for the app mark, links, native controls, and selected node/profile indicators, with `Theme.accentHighlight` (`#FF9661`) supplying the light end of the app mark's pulse gradient. Large selected surfaces no longer use saturated orange. Tabs, enabled toggle tiles, selected mode segments, the header quit action, and the prominent Profiles footer action share opaque `Theme.controlFill`: pale apricot `#FCE9DD` in light appearance and muted warm brown `#493429` in dark appearance. Their adaptive `Theme.accentForeground` is dark warm orange `#8C431C` / soft apricot `#FFD3B7`, maintaining at least 4.5:1 contrast. Enabled toggle icon circles use this foreground at 8% opacity. Selected node rows retain accent at 12% opacity, and the terminal route segment uses 14%.
 
 ### Secondary
 
@@ -116,8 +116,8 @@ These native semantic colors deliberately have no fabricated fixed hex tokens or
 
 ### Neutral
 
-- **Cool canvas** (`canvas-light` / `canvas-dark`): the whole panel's background, resolved by AppKit appearance.
-- **Raised surface** (`panel-light` / `panel-dark`): cards, action tiles, and grouped settings surfaces.
+- **Cool canvas** (`Theme.canvas`, `canvas-light` / `canvas-dark`): opaque whole-panel background, resolved by AppKit appearance. It covers the native menu-bar material and ignores safe areas; desktop colors never show through. No custom visual-effect background remains in the preview window.
+- **Raised surface** (`Theme.panel`, `panel-light` / `panel-dark`): opaque cards, action tiles, and grouped settings surfaces.
 - **Inset fill** (`inset-light` / `inset-dark`): inactive controls, nonterminal route segments, and selectable unselected-row hover.
 - **Native text hierarchy** (`.primary`, `.secondary`, `.tertiary`, `.quaternary`): content, supporting labels, chevrons/placeholders, and unselected node circles. Preserve native semantic styles for those roles.
 - **Chart labels** (`chart-label-light` / `chart-label-dark`): explicit opaque adaptive gray at 10 pt, avoiding compounded secondary-style attenuation in Swift Charts.
@@ -159,18 +159,17 @@ Semantic text styles retain platform-controlled sizes and line metrics. The sour
 
 ## Elevation & Depth
 
-Depth combines tonal layering and small black shadows. `PanelBackground` has no added outline: its continuous rounded surface and shadow distinguish it from the canvas. This does not ban native dividers, native field borders, or row separators, all of which exist in the inspected code.
+Depth uses opaque tonal layering and a half-point `Theme.panelBorder` outline. `PanelBackground`, action tiles, rule cards, and grouped settings surfaces share this restrained border treatment rather than glass or decorative shadows. This does not ban native dividers, native field borders, or row separators, all of which exist in the inspected code.
 
 ### Shadow Vocabulary
 
-- **Raised panel:** SwiftUI `.shadow(color: .black.opacity(0.06), radius: 3, y: 1)` on `PanelBackground`.
-- **Compact raised surface:** SwiftUI `.shadow(color: .black.opacity(0.05), radius: 2, y: 1)` on action tiles, rule cards, and `PanelSection`.
+- **Panel and compact surface:** no added shadow; a 0.5 pt outline uses white at 10% opacity in dark appearance and black at 6% in light appearance.
 
 The sidecar preserves these native expressions. Its browser specimens use representative CSS shadows, not an assertion that SwiftUI blur radius and CSS blur are identical.
 
 ### Named Rules
 
-**The Raised Panel Rule.** Reuse the existing tonal surface and restrained shadow for raised cards; do not add decorative outlines to `PanelBackground`. Retain native dividers and field borders where the component already uses them.
+**The Raised Panel Rule.** Reuse opaque tonal surfaces and the shared half-point outline for cards; do not reintroduce translucent materials or stack decorative shadows on top. Retain native dividers and field borders where the component already uses them.
 
 ## Shapes
 
@@ -184,7 +183,7 @@ The sidecar preserves these native expressions. Its browser specimens use repres
 
 ### Toggle tiles and action tiles
 
-`ToggleTile` is a large labeled action, not a native switch. Its enabled state uses the contrast-adjusted OrangePulse fill and white content; off uses inset fill and primary/secondary text. A 32 pt icon circle holds a symbol or small progress indicator. While working it rejects repeated actions; externally unavailable tiles have 50% opacity. Its accessibility label and on/off value are explicit.
+`ToggleTile` is a large labeled action, not a native switch. Its enabled state uses the soft adaptive apricot control fill and contrasting warm content; off uses inset fill and primary/secondary text. A 32 pt icon circle holds a symbol or small progress indicator. While working it rejects repeated actions; externally unavailable tiles have 50% opacity. Its accessibility label and on/off value are explicit.
 
 Home action tiles use raised panel fill, a symbol over a caption-sized label, and the compact shadow. Disabled action tiles use 45% opacity. Both tile families use `PressableStyle`: 0.98 pressed scale and 85% pressed opacity, with ease-out over 0.12 s. With Reduce Motion, that style suppresses animation and scaling but retains opacity feedback.
 
@@ -194,15 +193,15 @@ Home action tiles use raised panel fill, a symbol over a caption-sized label, an
 
 Home uses a native segmented picker for mode selection. Group search uses `TextField` with `.roundedBorder`, shown only when a group has more than ten members. Test actions use native borderless buttons, latency actions use plain buttons, and the empty-state import action uses `.borderedProminent`. Preserve those platform treatments; the inspected code provides no custom focus ring or custom text-field error style.
 
-The Profiles footer uses explicit 24 pt-high controls with 8 pt horizontal padding, 4 pt icon-label spacing, and an 8 pt vertical footer inset instead of small native tinted buttons over the frosted canvas. “添加订阅” uses opaque OrangePulse fill with graphite text; “导入文件” and the more-actions menu use opaque native control-background fill with primary text. All three use caption semibold labels/icons and the shared chip radius. The more-actions menu keeps “更新全部订阅” disabled without remote subscriptions, without an extra explanatory menu row. The node-update action has no hover tooltip. Each profile card's menu additionally offers “更新订阅节点” for the selected, running configuration, including local YAML: it updates only HTTP `proxy-providers`, shows an in-card progress indicator, then refreshes the node list without rewriting YAML, restarting the core, or updating rule providers. Noncurrent/stopped profiles show “请先切换到此配置并启动内核”; enumeration errors, absent HTTP subscriptions, and individual update failures are reported rather than silently treated as success.
+The Profiles footer uses explicit 24 pt-high controls with 8 pt horizontal padding, 4 pt icon-label spacing, and an 8 pt vertical footer inset instead of small native tinted buttons. “添加订阅” uses the shared soft apricot control fill and contrasting warm text; “导入文件” and the more-actions menu use opaque native control-background fill with primary text. All three use caption semibold labels/icons and the shared chip radius. The more-actions menu keeps “更新全部订阅” disabled without remote subscriptions, without an extra explanatory menu row. The node-update action has no hover tooltip. Each profile card's menu additionally offers “更新订阅节点” for the selected, running configuration, including local YAML: it updates only HTTP `proxy-providers`, shows an in-card progress indicator, then refreshes the node list without rewriting YAML, restarting the core, or updating rule providers. Noncurrent/stopped profiles show “请先切换到此配置并启动内核”; enumeration errors, absent HTTP subscriptions, and individual update failures are reported rather than silently treated as success.
 
 ### Tags and status
 
-`Tag` uses caption2 medium text, tinted foreground, a 12% tinted capsule, and compact padding. `StatusBadge` pairs text with its semantic dot: running and proxying is green “接管中”, with an opaque pale-mint background (`#DCEEE2`) and dark-green text/dot (`#145C2F`) in light appearance, and an opaque dark-green background (`#183D26`) with soft-mint text/dot (`#A7E5BA`) in dark appearance, keeping contrast independent of the frosted desktop; running with pending YAML edits to rules or strategy groups is an orange clickable “需重启生效” pill that restarts the core on click; running without takeover and stopped are secondary; starting is orange; failure is red. A running core alone does not imply active traffic takeover.
+`Tag` uses caption2 medium text, tinted foreground, a 12% tinted capsule, and compact padding. `StatusBadge` pairs text with its semantic dot: running and proxying is green “接管中”, with an opaque pale-mint background (`#DCEEE2`) and dark-green text/dot (`#145C2F`) in light appearance, and an opaque dark-green background (`#183D26`) with soft-mint text/dot (`#A7E5BA`) in dark appearance, keeping contrast stable in both appearances; running with pending YAML edits to rules or strategy groups is an orange clickable “需重启生效” pill that restarts the core on click; running without takeover and stopped are secondary; starting is orange; failure is red. A running core alone does not imply active traffic takeover.
 
 ### Navigation
 
-The five equal-width tabs (首页, 代理, 配置, 规则, 设置) pair SF Symbols with caption2 medium labels. Active tabs use opaque OrangePulse fill and graphite (`Theme.accentForeground`) icons/labels so desktop colors cannot dilute their contrast; inactive tabs use primary text on clear fill. They use `PressableStyle`, expose selection to accessibility, and support Command–1 through Command–5. Subpage headers use a native borderless “返回” action with the cancel keyboard shortcut. The shared header's “退出” action uses the exact `#F57B3F` accent fill with opaque graphite (`#292C31`) text and power icon in both appearances. Home keeps “配置文档” and “退出 TinyClash” in a fixed footer outside its scrollable content, with an 18 pt horizontal inset and 12 pt bottom inset. The footer remains visible when the content or an error banner needs scrolling; Settings does not duplicate these actions.
+The five equal-width tabs (首页, 代理, 配置, 规则, 设置) pair SF Symbols with caption2 medium labels. Active tabs use opaque soft apricot (`Theme.controlFill`) with contrasting warm (`Theme.accentForeground`) icons/labels; inactive tabs use primary text on clear fill. They use `PressableStyle`, expose selection to accessibility, and support Command–1 through Command–5. Subpage headers use a native borderless “返回” action with the cancel keyboard shortcut. The shared header's “退出” action uses the same adaptive soft control fill and warm text/power icon as the selected tabs. Home keeps “配置文档” and “退出 TinyClash” in a fixed footer outside its scrollable content, with an 18 pt horizontal inset and 12 pt bottom inset. The footer remains visible when the content or an error banner needs scrolling; Settings does not duplicate these actions.
 
 ### Panels and proxy groups
 
@@ -246,6 +245,6 @@ The panel-level error banner uses failure red at 10% opacity, tile corners, a re
 
 - **Don't** follow the user's system accent in place of the confirmed OrangePulse brand orange, or recolor semantic network states and traffic series as decorative accents.
 - **Don't** turn the menu-bar interface into a main-window layout or add unsupported responsive breakpoints.
-- **Don't** add decorative borders to the existing raised-card treatment or remove native dividers on that pretext.
+- **Don't** reintroduce glass backgrounds, saturated-orange selection fills, or decorative shadows; retain the shared fine outline and native dividers.
 - **Don't** bypass the existing Reduce Motion checks on toggle, press, or hover feedback.
 - **Don't** treat synthesized tonal ramps, browser focus styling, or browser component metrics as extracted shipping tokens.
