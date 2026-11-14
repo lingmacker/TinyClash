@@ -37,11 +37,15 @@ struct MenuBarLabel: View {
     #endif
 
     var body: some View {
-        HStack(spacing: 4) {
-            Image(state.isProxying ? "MenuBarIcon" : "MenuBarIconIdle")
+        Group {
             if state.showSpeedInMenuBar && state.isRunning {
-                Text("\(Image(systemName: "arrow.down"))\(Format.compactSpeed(state.downSpeed)) \(Image(systemName: "arrow.up"))\(Format.compactSpeed(state.upSpeed))")
-                    .monospacedDigit()
+                Image(nsImage: MenuBarSpeedImage.image(upload: state.upSpeed, download: state.downSpeed,
+                                                      active: state.isProxying))
+                    .accessibilityLabel("TinyClash，上传 \(Format.speed(state.upSpeed))，下载 \(Format.speed(state.downSpeed))")
+                    .help("上传 \(Format.speed(state.upSpeed)) · 下载 \(Format.speed(state.downSpeed))")
+            } else {
+                Image(state.isProxying ? "MenuBarIcon" : "MenuBarIconIdle")
+                    .accessibilityLabel("TinyClash")
             }
         }
         #if TINYCLASH_PREVIEW
@@ -169,10 +173,10 @@ struct MenuPanel: View {
                         Image(systemName: t.icon).font(.system(size: 13, weight: .medium))
                         Text(t.title).font(.caption2.weight(.medium))
                     }
-                    .foregroundStyle(tab == t ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(tab == t ? AnyShapeStyle(Theme.accentForeground) : AnyShapeStyle(.primary))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 6)
-                    .background(tab == t ? AnyShapeStyle(Color.accentColor.opacity(0.12)) : AnyShapeStyle(Color.clear),
+                    .background(tab == t ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.clear),
                                 in: RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
                     .contentShape(Rectangle())
                 }

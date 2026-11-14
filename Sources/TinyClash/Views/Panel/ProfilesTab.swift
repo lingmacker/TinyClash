@@ -15,6 +15,8 @@ struct ProfilesTab: View {
         }
     }
 
+    private var hasSubscriptions: Bool { state.profiles.contains { $0.kind == .remote } }
+
     private var list: some View {
         VStack(spacing: 0) {
             ScrollView {
@@ -32,8 +34,14 @@ struct ProfilesTab: View {
             }
             Divider()
             HStack(spacing: Theme.Space.s) {
-                Button { adding = true } label: { Label("添加订阅", systemImage: "plus") }
-                Button { Task { await state.importProfileFromFile() } } label: { Label("导入文件", systemImage: "square.and.arrow.down") }
+                Button { adding = true } label: {
+                    ProfileFooterLabel(title: "添加订阅", icon: "plus", prominent: true)
+                }
+                .buttonStyle(PressableStyle())
+                Button { Task { await state.importProfileFromFile() } } label: {
+                    ProfileFooterLabel(title: "导入文件", icon: "square.and.arrow.down")
+                }
+                .buttonStyle(PressableStyle())
                 Spacer()
                 Menu {
                     Button("新建空白配置") {
@@ -41,16 +49,42 @@ struct ProfilesTab: View {
                         NSWorkspace.shared.open(p.fileURL)
                     }
                     Button("更新全部订阅") { Task { await state.updateAllProfiles() } }
-                        .disabled(!state.profiles.contains { $0.kind == .remote })
-                } label: { Image(systemName: "ellipsis.circle") }
-                    .menuStyle(.borderlessButton)
+                        .disabled(!hasSubscriptions)
+                } label: { ProfileFooterLabel(icon: "ellipsis") }
+                    .menuStyle(.button)
+                    .buttonStyle(PressableStyle())
                     .menuIndicator(.hidden)
                     .fixedSize()
+                    .help("更多配置操作")
+                    .accessibilityLabel("更多配置操作")
             }
-            .controlSize(.small)
             .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.vertical, 8)
         }
+    }
+}
+
+private struct ProfileFooterLabel: View {
+    var title: String? = nil
+    var icon: String
+    var prominent = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+            if let title { Text(title) }
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(prominent ? AnyShapeStyle(Theme.accentForeground) : AnyShapeStyle(.primary))
+        .padding(.horizontal, 8)
+        .frame(height: 24)
+        .background(prominent ? Theme.accent : Color(nsColor: .controlBackgroundColor),
+                    in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
+                .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
     }
 }
 
@@ -93,7 +127,7 @@ private struct ProfileCard: View {
             .accessibilityAddTraits(selected ? .isSelected : [])
             .help(selected ? "当前使用的配置" : "点击切换到此配置")
             HStack(spacing: 8) {
-                if state.updatingProfiles.contains(profile.id) {
+                if state.updatingProfiles.contains(profile.id) || state.updatingProfileNodes.contains(profile.id) {
                     ProgressView().controlSize(.mini)
                 } else if profile.kind == .remote {
                     Button { Task { await state.updateProfile(profile.id) } } label: { Image(systemName: "arrow.clockwise") }
@@ -115,6 +149,13 @@ private struct ProfileCard: View {
             Button("在编辑器中打开 YAML") { NSWorkspace.shared.open(profile.fileURL) }
             if state.selectedProfileID == profile.id {
                 Button("重新加载（编辑 YAML 后）") { Task { await state.reloadCurrentProfile() } }
+            }
+            Button(state.updatingProfileNodes.contains(profile.id) ? "正在更新订阅节点…" : "更新订阅节点") {
+                Task { await state.updateProfileNodes(profile.id) }
+            }
+            .disabled(!state.canUpdateProfileNodes(profile.id))
+            if state.selectedProfileID != profile.id || !state.isRunning {
+                Text("请先切换到此配置并启动内核")
             }
             Button("编辑信息…", action: onEdit)
             Button("在 Finder 中显示") { NSWorkspace.shared.activateFileViewerSelecting([profile.fileURL]) }

@@ -63,6 +63,7 @@ final class AppState {
 
     var profiles: [Profile] = []
     var updatingProfiles: Set<UUID> = []
+    var updatingProfileNodes: Set<UUID> = []
     private var editingProfiles: Set<UUID> = []
     private(set) var profileRevision = 0
     var needsCoreRestart = false
@@ -637,9 +638,37 @@ final class AppState {
         return profile
     }
 
+    func canUpdateProfileNodes(_ id: UUID) -> Bool {
+        isRunning && selectedProfile?.id == id && !busy
+            && !updatingProfiles.contains(id) && !editingProfiles.contains(id)
+    }
+
+    func updateProfileNodes(_ id: UUID) async {
+        guard canUpdateProfileNodes(id), let api else { return }
+        busy = true
+        updatingProfileNodes.insert(id)
+        defer {
+            updatingProfileNodes.remove(id)
+            busy = false
+        }
+        do {
+            let failed = try await api.updateSubscriptionNodes()
+            guard self.api === api, selectedProfileID == id, isRunning else { return }
+            await refreshProxies()
+            guard self.api === api, selectedProfileID == id, isRunning else { return }
+            if !failed.isEmpty { errorMessage = "以下节点订阅更新失败：\(failed.joined(separator: "、"))" }
+        } catch is CancellationError {
+            return
+        } catch {
+            guard self.api === api, selectedProfileID == id, isRunning else { return }
+            errorMessage = "更新订阅节点失败：\(error.localizedDescription)"
+        }
+    }
+
     func updateProfile(_ id: UUID) async {
         guard let profile = profiles.first(where: { $0.id == id }), let url = profile.url,
-              !updatingProfiles.contains(id), !editingProfiles.contains(id) else { return }
+              !updatingProfiles.contains(id), !updatingProfileNodes.contains(id),
+              !editingProfiles.contains(id) else { return }
         updatingProfiles.insert(id)
         defer { updatingProfiles.remove(id) }
         do {

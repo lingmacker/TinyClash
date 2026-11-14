@@ -99,7 +99,7 @@ The neutral palette separates canvas, panel, and inset fill; OrangePulse orange 
 
 ### Primary
 
-- **OrangePulse accent** (`Theme.accent`, `#F57B3F`): slightly lightened toward the `#FF9661` end of the gradient in `Resources/AppIcon.icon/Assets/03 OrangePulse.svg`, with `Theme.accentHighlight` (`#FF9661`) supplying the light end of the app mark's pulse gradient. The menu panel sets both SwiftUI accent and tint so active navigation, selected nodes/profiles, links, buttons, and native switches inherit the same brand orange. Selected tabs and node rows use accent at 12% opacity; the terminal route segment uses 14%. Enabled toggle tiles and selected mode segments use `Theme.controlFill`, which darkens the brand orange in sRGB in fine 1% steps until relative luminance is at most 0.183. Its opaque white text therefore clears 4.5:1 contrast. The white icon-circle fill uses 22% opacity.
+- **OrangePulse accent** (`Theme.accent`, `#F57B3F`): slightly lightened toward the `#FF9661` end of the gradient in `Resources/AppIcon.icon/Assets/03 OrangePulse.svg`, with `Theme.accentHighlight` (`#FF9661`) supplying the light end of the app mark's pulse gradient. The menu panel sets both SwiftUI accent and tint so active navigation, selected nodes/profiles, links, buttons, and native switches inherit the same brand orange. Selected tabs use opaque accent fill with graphite content; selected node rows use accent at 12% opacity, and the terminal route segment uses 14%. Enabled toggle tiles and selected mode segments use `Theme.controlFill`, which darkens the brand orange in sRGB in fine 1% steps until relative luminance is at most 0.183. Its opaque white text therefore clears 4.5:1 contrast. The white icon-circle fill uses 22% opacity.
 
 ### Secondary
 
@@ -194,13 +194,15 @@ Home action tiles use raised panel fill, a symbol over a caption-sized label, an
 
 Home uses a native segmented picker for mode selection. Group search uses `TextField` with `.roundedBorder`, shown only when a group has more than ten members. Test actions use native borderless buttons, latency actions use plain buttons, and the empty-state import action uses `.borderedProminent`. Preserve those platform treatments; the inspected code provides no custom focus ring or custom text-field error style.
 
+The Profiles footer uses explicit 24 pt-high controls with 8 pt horizontal padding, 4 pt icon-label spacing, and an 8 pt vertical footer inset instead of small native tinted buttons over the frosted canvas. “添加订阅” uses opaque OrangePulse fill with graphite text; “导入文件” and the more-actions menu use opaque native control-background fill with primary text. All three use caption semibold labels/icons and the shared chip radius. The more-actions menu keeps “更新全部订阅” disabled without remote subscriptions, without an extra explanatory menu row. The node-update action has no hover tooltip. Each profile card's menu additionally offers “更新订阅节点” for the selected, running configuration, including local YAML: it updates only HTTP `proxy-providers`, shows an in-card progress indicator, then refreshes the node list without rewriting YAML, restarting the core, or updating rule providers. Noncurrent/stopped profiles show “请先切换到此配置并启动内核”; enumeration errors, absent HTTP subscriptions, and individual update failures are reported rather than silently treated as success.
+
 ### Tags and status
 
 `Tag` uses caption2 medium text, tinted foreground, a 12% tinted capsule, and compact padding. `StatusBadge` pairs text with its semantic dot: running and proxying is green “接管中”, with an opaque pale-mint background (`#DCEEE2`) and dark-green text/dot (`#145C2F`) in light appearance, and an opaque dark-green background (`#183D26`) with soft-mint text/dot (`#A7E5BA`) in dark appearance, keeping contrast independent of the frosted desktop; running with pending YAML edits to rules or strategy groups is an orange clickable “需重启生效” pill that restarts the core on click; running without takeover and stopped are secondary; starting is orange; failure is red. A running core alone does not imply active traffic takeover.
 
 ### Navigation
 
-The five equal-width tabs (首页, 代理, 配置, 规则, 设置) pair SF Symbols with caption2 medium labels. Active tabs use accent foreground and a 12% accent tile fill; inactive tabs are secondary on clear fill. They use `PressableStyle`, expose selection to accessibility, and support Command–1 through Command–5. Subpage headers use a native borderless “返回” action with the cancel keyboard shortcut. The shared header's “退出” action uses the exact `#F57B3F` accent fill with opaque graphite (`#292C31`) text and power icon in both appearances. Home keeps “配置文档” and “退出 TinyClash” in a fixed footer outside its scrollable content, with an 18 pt horizontal inset and 12 pt bottom inset. The footer remains visible when the content or an error banner needs scrolling; Settings does not duplicate these actions.
+The five equal-width tabs (首页, 代理, 配置, 规则, 设置) pair SF Symbols with caption2 medium labels. Active tabs use opaque OrangePulse fill and graphite (`Theme.accentForeground`) icons/labels so desktop colors cannot dilute their contrast; inactive tabs use primary text on clear fill. They use `PressableStyle`, expose selection to accessibility, and support Command–1 through Command–5. Subpage headers use a native borderless “返回” action with the cancel keyboard shortcut. The shared header's “退出” action uses the exact `#F57B3F` accent fill with opaque graphite (`#292C31`) text and power icon in both appearances. Home keeps “配置文档” and “退出 TinyClash” in a fixed footer outside its scrollable content, with an 18 pt horizontal inset and 12 pt bottom inset. The footer remains visible when the content or an error banner needs scrolling; Settings does not duplicate these actions.
 
 ### Panels and proxy groups
 
@@ -213,6 +215,10 @@ The five equal-width tabs (首页, 代理, 配置, 规则, 设置) pair SF Symbo
 ### Node rows
 
 Rows use the fixed `node-row` height. Selection combines an accent checkmark, semibold name, and 12% accent background. Hover supplies inset fill only for selectable groups. A trailing latency action changes to a mini progress indicator during testing. Nonselectable automatic groups retain their informational row and explain why manual selection is unavailable.
+
+### Menu bar speed
+
+`MenuBarSpeedImage` follows TinyNet's two-line template-image approach rather than a variable-width SwiftUI text label. Upload (`↑`) is above download (`↓`), using 8 pt bold system monospaced text, right-aligned within a fixed 66 × 22 pt speed column. The existing 18 pt active/idle status mark is centered vertically to its left with a 4 pt gap, producing one 88 × 22 pt template image. AppKit supplies display-scale rasterization and system menu-bar tinting. The input remains mihomo bytes/s, displayed from KB/s upward using binary conversion, two decimals and a minimum six-character numeric field; units extend through EB/s to keep extreme values within the fixed column. An image is reused while formatted text and proxy status remain unchanged. Disabling menu-bar speed or stopping the core restores the original status icon without a speed column; the Home chart formatter is unchanged.
 
 ### Traffic readouts and chart
 

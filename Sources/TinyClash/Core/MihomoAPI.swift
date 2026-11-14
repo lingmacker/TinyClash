@@ -167,11 +167,13 @@ struct LogMessage: Decodable { var type: String; var payload: String }
 enum APIError: LocalizedError {
     case http(Int, String)
     case notRunning
+    case noNodeSubscriptions
 
     var errorDescription: String? {
         switch self {
         case .http(let code, let msg): return "HTTP \(code): \(msg)"
         case .notRunning: return "内核未运行"
+        case .noNodeSubscriptions: return "当前配置没有可更新的 HTTP 节点订阅（proxy-providers）"
         }
     }
 }
@@ -182,11 +184,12 @@ final class MihomoAPI: @unchecked Sendable {
     let secret: String
     let session: URLSession
 
-    init(host: String = "127.0.0.1", port: Int, secret: String) {
+    init(host: String = "127.0.0.1", port: Int, secret: String,
+         sessionConfiguration: URLSessionConfiguration = .ephemeral) {
         self.host = host
         self.port = port
         self.secret = secret
-        let cfg = URLSessionConfiguration.ephemeral
+        let cfg = sessionConfiguration
         cfg.connectionProxyDictionary = [:] // 控制接口绝不能走代理
         cfg.timeoutIntervalForRequest = 15
         session = URLSession(configuration: cfg)
@@ -272,6 +275,26 @@ final class MihomoAPI: @unchecked Sendable {
 
     func updateProxyProvider(_ name: String) async throws {
         _ = try await request("PUT", "/providers/proxies/\(name.pathEscaped)", timeout: 60)
+    }
+
+    /// 只刷新 HTTP 节点订阅，不改写配置、规则集或本地文件集合。
+    func updateSubscriptionNodes() async throws -> [String] {
+        try Task.checkCancellation()
+        let providers = try await proxyProviders().filter {
+            $0.vehicleType.caseInsensitiveCompare("HTTP") == .orderedSame
+        }
+        guard !providers.isEmpty else { throw APIError.noNodeSubscriptions }
+        var failed: [String] = []
+        for provider in providers {
+            try Task.checkCancellation()
+            do {
+                try await updateProxyProvider(provider.name)
+            } catch {
+                try Task.checkCancellation()
+                failed.append(provider.name)
+            }
+        }
+        return failed
     }
 
     func healthcheckProvider(_ name: String) async throws {
