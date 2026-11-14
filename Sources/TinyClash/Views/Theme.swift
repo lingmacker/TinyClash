@@ -32,25 +32,37 @@ enum Theme {
         a.isDark ? NSColor(white: 1, alpha: 0.09) : NSColor(white: 0, alpha: 0.055)
     })
 
-    /// 保留系统强调色色相，并确保白色小字的对比度至少为 4.5:1。
-    static let controlFill = Color(nsColor: NSColor(name: nil) { appearance in
-        var accent = NSColor.systemBlue
-        appearance.performAsCurrentDrawingAppearance {
-            accent = NSColor.controlAccentColor.usingColorSpace(.sRGB) ?? .systemBlue
-        }
-        var r = accent.redComponent
-        var g = accent.greenComponent
-        var b = accent.blueComponent
+    /// 基于 OrangePulse 渐变，向浅色端略微提亮的暖橙色。
+    private static let accentColor = NSColor(srgbRed: 245 / 255, green: 123 / 255, blue: 63 / 255, alpha: 1)
+    static let accent = Color(nsColor: accentColor)
+    static let accentHighlight = Color(.sRGB, red: 1, green: 150 / 255, blue: 97 / 255, opacity: 1)
+    static let accentForeground = Color(.sRGB, red: 41 / 255, green: 44 / 255, blue: 49 / 255, opacity: 1)
+
+    /// 接管状态使用不透明底色，避免毛玻璃背后的桌面影响小字对比度。
+    static let statusActive = Color(nsColor: NSColor(name: nil) { a in
+        a.isDark ? NSColor(srgbRed: 167 / 255, green: 229 / 255, blue: 186 / 255, alpha: 1)
+                 : NSColor(srgbRed: 20 / 255, green: 92 / 255, blue: 47 / 255, alpha: 1)
+    })
+    static let statusActiveFill = Color(nsColor: NSColor(name: nil) { a in
+        a.isDark ? NSColor(srgbRed: 24 / 255, green: 61 / 255, blue: 38 / 255, alpha: 1)
+                 : NSColor(srgbRed: 220 / 255, green: 238 / 255, blue: 226 / 255, alpha: 1)
+    })
+
+    /// 保留品牌橙色色相，并确保白色小字的对比度至少为 4.5:1。
+    static let controlFill: Color = {
+        var r = accentColor.redComponent
+        var g = accentColor.greenComponent
+        var b = accentColor.blueComponent
         func linear(_ value: CGFloat) -> CGFloat {
             value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
         }
-        while 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b) > 0.18 {
-            r *= 0.95
-            g *= 0.95
-            b *= 0.95
+        while 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b) > 0.183 {
+            r *= 0.99
+            g *= 0.99
+            b *= 0.99
         }
-        return NSColor(srgbRed: r, green: g, blue: b, alpha: 1)
-    })
+        return Color(.sRGB, red: r, green: g, blue: b, opacity: 1)
+    }()
 
     static let chartLabel = Color(nsColor: NSColor(name: nil) { a in
         a.isDark ? NSColor(white: 0.75, alpha: 1) : NSColor(white: 0.36, alpha: 1)

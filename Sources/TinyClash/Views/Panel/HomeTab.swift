@@ -27,6 +27,7 @@ struct HomeTab: View {
         HStack {
             Link("配置文档", destination: URL(string: "https://wiki.metacubex.one/config/")!)
                 .font(.caption)
+                .foregroundStyle(Theme.accent)
             Spacer()
         }
         .padding(.horizontal, 18)

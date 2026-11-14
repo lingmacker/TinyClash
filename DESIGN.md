@@ -81,7 +81,7 @@ components:
 
 **Creative North Star: "Stash-inspired native macOS restraint"**
 
-TinyClash uses the confirmed Stash for Mac reference through native macOS controls, a softly tinted canvas, raised rounded panels, and a system accent that identifies selection and enabled proxy controls. This is an operational interface: readable state and familiar behavior take precedence over decoration. Its shipping surface is a native SwiftUI menu-bar panel, not a web application or a reduced desktop window.
+TinyClash uses the confirmed Stash for Mac reference through native macOS controls, a softly tinted canvas, raised rounded panels, and the icon's OrangePulse accent that identifies selection and enabled proxy controls. This is an operational interface: readable state and familiar behavior take precedence over decoration. Its shipping surface is a native SwiftUI menu-bar panel, not a web application or a reduced desktop window.
 
 The system follows macOS light and dark appearance. Standard system text and SF Symbols carry the interface; rounded, monospaced digits distinguish live network values. Simplified Chinese labels stay compact, with secondary text used for profile names, node details, and supporting information.
 
@@ -89,17 +89,17 @@ This document records the implementation in `Sources/TinyClash/Views/Theme.swift
 
 **Key Characteristics:**
 - Adaptive cool-neutral canvas and raised panels.
-- System accent for selection and enabled controls; semantic color for network state.
+- OrangePulse brand orange for selection and enabled controls; semantic color for network state.
 - Native system typography, SF Symbols, and rounded tabular numerals.
 - Compact spacing, continuous rounded corners, and restrained interaction feedback.
 
 ## Colors
 
-The neutral palette separates canvas, panel, and inset fill; adaptive system colors communicate operation rather than supply a fixed brand palette.
+The neutral palette separates canvas, panel, and inset fill; OrangePulse orange identifies actions and selection, while adaptive system colors retain their network-state and traffic-series roles.
 
 ### Primary
 
-- **System accent** (`Color.accentColor`): active navigation, selected node indicators, and the active app mark. Selected tabs and node rows use accent at 12% opacity; the terminal route segment uses 14%. Enabled toggle tiles use `Theme.controlFill`, which resolves the native accent in sRGB and darkens it until relative luminance is at most 0.18. Its opaque white text therefore clears 4.56:1 contrast. The white icon-circle fill uses 22% opacity.
+- **OrangePulse accent** (`Theme.accent`, `#F57B3F`): slightly lightened toward the `#FF9661` end of the gradient in `Resources/AppIcon.icon/Assets/03 OrangePulse.svg`, with `Theme.accentHighlight` (`#FF9661`) supplying the light end of the app mark's pulse gradient. The menu panel sets both SwiftUI accent and tint so active navigation, selected nodes/profiles, links, buttons, and native switches inherit the same brand orange. Selected tabs and node rows use accent at 12% opacity; the terminal route segment uses 14%. Enabled toggle tiles and selected mode segments use `Theme.controlFill`, which darkens the brand orange in sRGB in fine 1% steps until relative luminance is at most 0.183. Its opaque white text therefore clears 4.5:1 contrast. The white icon-circle fill uses 22% opacity.
 
 ### Secondary
 
@@ -184,7 +184,7 @@ The sidecar preserves these native expressions. Its browser specimens use repres
 
 ### Toggle tiles and action tiles
 
-`ToggleTile` is a large labeled action, not a native switch. Its enabled state uses the contrast-adjusted native accent fill and white content; off uses inset fill and primary/secondary text. A 32 pt icon circle holds a symbol or small progress indicator. While working it rejects repeated actions; externally unavailable tiles have 50% opacity. Its accessibility label and on/off value are explicit.
+`ToggleTile` is a large labeled action, not a native switch. Its enabled state uses the contrast-adjusted OrangePulse fill and white content; off uses inset fill and primary/secondary text. A 32 pt icon circle holds a symbol or small progress indicator. While working it rejects repeated actions; externally unavailable tiles have 50% opacity. Its accessibility label and on/off value are explicit.
 
 Home action tiles use raised panel fill, a symbol over a caption-sized label, and the compact shadow. Disabled action tiles use 45% opacity. Both tile families use `PressableStyle`: 0.98 pressed scale and 85% pressed opacity, with ease-out over 0.12 s. With Reduce Motion, that style suppresses animation and scaling but retains opacity feedback.
 
@@ -196,11 +196,11 @@ Home uses a native segmented picker for mode selection. Group search uses `TextF
 
 ### Tags and status
 
-`Tag` uses caption2 medium text, tinted foreground, a 12% tinted capsule, and compact padding. `StatusBadge` pairs text with its semantic dot: running and proxying is green “接管中”; running with pending YAML edits to rules or strategy groups is an orange clickable “需重启生效” pill that restarts the core on click; running without takeover and stopped are secondary; starting is orange; failure is red. A running core alone does not imply active traffic takeover.
+`Tag` uses caption2 medium text, tinted foreground, a 12% tinted capsule, and compact padding. `StatusBadge` pairs text with its semantic dot: running and proxying is green “接管中”, with an opaque pale-mint background (`#DCEEE2`) and dark-green text/dot (`#145C2F`) in light appearance, and an opaque dark-green background (`#183D26`) with soft-mint text/dot (`#A7E5BA`) in dark appearance, keeping contrast independent of the frosted desktop; running with pending YAML edits to rules or strategy groups is an orange clickable “需重启生效” pill that restarts the core on click; running without takeover and stopped are secondary; starting is orange; failure is red. A running core alone does not imply active traffic takeover.
 
 ### Navigation
 
-The five equal-width tabs (首页, 代理, 配置, 规则, 设置) pair SF Symbols with caption2 medium labels. Active tabs use accent foreground and a 12% accent tile fill; inactive tabs are secondary on clear fill. They use `PressableStyle`, expose selection to accessibility, and support Command–1 through Command–5. Subpage headers use a native borderless “返回” action with the cancel keyboard shortcut. Home keeps “配置文档” and “退出 TinyClash” in a fixed footer outside its scrollable content, with an 18 pt horizontal inset and 12 pt bottom inset. The footer remains visible when the content or an error banner needs scrolling; Settings does not duplicate these actions.
+The five equal-width tabs (首页, 代理, 配置, 规则, 设置) pair SF Symbols with caption2 medium labels. Active tabs use accent foreground and a 12% accent tile fill; inactive tabs are secondary on clear fill. They use `PressableStyle`, expose selection to accessibility, and support Command–1 through Command–5. Subpage headers use a native borderless “返回” action with the cancel keyboard shortcut. The shared header's “退出” action uses the exact `#F57B3F` accent fill with opaque graphite (`#292C31`) text and power icon in both appearances. Home keeps “配置文档” and “退出 TinyClash” in a fixed footer outside its scrollable content, with an 18 pt horizontal inset and 12 pt bottom inset. The footer remains visible when the content or an error banner needs scrolling; Settings does not duplicate these actions.
 
 ### Panels and proxy groups
 
@@ -238,7 +238,7 @@ The panel-level error banner uses failure red at 10% opacity, tile corners, a re
 
 ### Don't:
 
-- **Don't** replace adaptive system accent or semantic network colors with an invented fixed brand palette.
+- **Don't** follow the user's system accent in place of the confirmed OrangePulse brand orange, or recolor semantic network states and traffic series as decorative accents.
 - **Don't** turn the menu-bar interface into a main-window layout or add unsupported responsive breakpoints.
 - **Don't** add decorative borders to the existing raised-card treatment or remove native dividers on that pretext.
 - **Don't** bypass the existing Reduce Motion checks on toggle, press, or hover feedback.

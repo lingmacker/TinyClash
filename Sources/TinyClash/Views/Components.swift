@@ -73,8 +73,7 @@ struct TinyClashBadge: View {
                 TinyClashLayerShape(kind: .pulse)
                     .fill(active
                           ? AnyShapeStyle(LinearGradient(
-                              colors: [Color(red: 1.0, green: 0.588, blue: 0.380),
-                                       Color(red: 0.949, green: 0.447, blue: 0.204)],
+                              colors: [Theme.accentHighlight, Theme.accent],
                               startPoint: .top, endPoint: .bottom))
                           : AnyShapeStyle(.tertiary))
             }
@@ -244,7 +243,7 @@ struct StatusBadge: View {
         .foregroundStyle(color)
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
-        .background(color.opacity(0.12), in: Capsule())
+        .background(state.isProxying && !needsRestart ? Theme.statusActiveFill : color.opacity(0.12), in: Capsule())
     }
 
     private var text: String {
@@ -262,7 +261,7 @@ struct StatusBadge: View {
         switch state.coreState {
         case .running:
             if state.needsCoreRestart { return Theme.warning }
-            return state.isProxying ? Theme.active : .secondary
+            return state.isProxying ? Theme.statusActive : .secondary
         case .starting: return Theme.warning
         case .stopped: return .secondary
         case .failed: return Theme.failure

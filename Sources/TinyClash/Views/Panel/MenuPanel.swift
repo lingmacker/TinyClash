@@ -90,6 +90,8 @@ struct MenuPanel: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(width: PanelMetrics.width, height: PanelMetrics.height)
+        .accentColor(Theme.accent)
+        .tint(Theme.accent)
         // 窗口打开时 AppKit 会把焦点给第一个输入框并全选文字，这里清掉，避免误输入
         .onAppear(perform: clearFocus)
         .onChange(of: tab) { clearFocus() }
@@ -140,10 +142,10 @@ struct MenuPanel: View {
                     Text("退出")
                         .font(.caption.weight(.medium))
                 }
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.accentForeground)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(Theme.inset, in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
+                .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
                         .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
