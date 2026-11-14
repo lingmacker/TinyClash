@@ -48,7 +48,6 @@ struct RuleEditorPage: View {
     @State private var extras: [String]
     @State private var saving = false
     @State private var error: String?
-    @State private var confirmingDelete = false
     /// 策略与规则集名称在停核或待重启时要读取解析 YAML，缓存起来，避免每次输入都重读文件
     @State private var policyNames: [String] = AppState.builtinPolicies
     @State private var ruleProviderNames: [String] = []
@@ -125,7 +124,12 @@ struct RuleEditorPage: View {
                 } else {
                     HStack(spacing: 10) {
                         if editing != nil {
-                            Button(role: .destructive) { confirmingDelete = true } label: { Image(systemName: "trash") }
+                            Button(role: .destructive) {
+                                guard let editing else { return }
+                                state.confirm("删除这条规则？", message: "\(editing.original)\n会从当前配置的 YAML 中删除。") {
+                                    delete(editing.target)
+                                }
+                            } label: { Image(systemName: "trash") }
                                 .buttonStyle(.borderless)
                                 .help("从配置中删除规则")
                                 .accessibilityLabel("删除规则")
@@ -204,12 +208,6 @@ struct RuleEditorPage: View {
                 payload = ruleProviderNames.first ?? ""
             }
         }
-        .alert("删除这条规则？", isPresented: $confirmingDelete) {
-            Button("取消", role: .cancel) {}
-            Button("删除", role: .destructive) { if let editing { delete(editing.target) } }
-        } message: {
-            Text("\(editing?.original ?? "")\n会从当前配置的 YAML 中删除。")
-        }
     }
 
     private func save() {
@@ -266,7 +264,6 @@ struct GroupEditorPage: View {
     @State private var search = ""
     @State private var saving = false
     @State private var error: String?
-    @State private var confirmingDelete: String?
     /// 候选成员与节点名在节点很多时计算量大，只在节点或分组变化时重算
     @State private var allCandidates: [String] = []
     @State private var takenNames: Set<String> = []
@@ -316,7 +313,12 @@ struct GroupEditorPage: View {
                 } else {
                     HStack(spacing: 10) {
                         if let original {
-                            Button(role: .destructive) { confirmingDelete = original.name } label: { Image(systemName: "trash") }
+                            Button(role: .destructive) {
+                                state.confirm("删除策略组「\(original.name)」？",
+                                              message: "会从当前配置的 YAML 中删除该策略组；仍被规则或其他策略组引用时不会删除。") {
+                                    delete(original.name)
+                                }
+                            } label: { Image(systemName: "trash") }
                                 .buttonStyle(.borderless)
                                 .help("从配置中删除策略组")
                                 .accessibilityLabel("删除策略组")
@@ -405,13 +407,6 @@ struct GroupEditorPage: View {
         .onAppear(perform: loadCandidates)
         .onChange(of: state.groupNames) { loadCandidates() }
         .onChange(of: state.proxies.count) { loadCandidates() }
-        .alert("删除策略组「\(confirmingDelete ?? "")」？", isPresented: Binding(get: { confirmingDelete != nil },
-                                                                           set: { if !$0 { confirmingDelete = nil } })) {
-            Button("取消", role: .cancel) {}
-            Button("删除", role: .destructive) { if let name = confirmingDelete { delete(name) } }
-        } message: {
-            Text("会从当前配置的 YAML 中删除该策略组；仍被规则或其他策略组引用时不会删除。")
-        }
     }
 
     private func save() {

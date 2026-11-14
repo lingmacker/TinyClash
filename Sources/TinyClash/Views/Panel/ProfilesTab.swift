@@ -105,8 +105,6 @@ private struct ProfileCard: View {
     @Environment(AppState.self) private var state
     let profile: Profile
     var onEdit: () -> Void
-    @State private var confirmingDelete = false
-    @State private var confirmingOverwrite = false
 
     private var locallyModified: Bool { state.isLocallyModified(profile.id) }
 
@@ -160,26 +158,12 @@ private struct ProfileCard: View {
                     ProgressView().controlSize(.mini)
                 } else if profile.kind == .remote {
                     Button {
-                        if locallyModified { confirmingOverwrite = true } else { Task { await state.updateProfile(profile.id) } }
+                        if locallyModified { confirmOverwrite() } else { Task { await state.updateProfile(profile.id) } }
                     } label: { Image(systemName: "arrow.clockwise") }
                         .buttonStyle(.borderless).help("更新订阅").accessibilityLabel("更新订阅")
                 }
                 menu
             }
-        }
-        .alert("删除配置「\(profile.name)」？", isPresented: $confirmingDelete) {
-            Button("取消", role: .cancel) {}
-            Button("删除", role: .destructive) { Task { await state.deleteProfile(profile.id) } }
-        } message: {
-            Text(state.selectedProfileID == profile.id
-                 ? "会删除配置文件，并切换到其他配置重启内核。删除前会在 backups 目录保留一份备份。"
-                 : "会删除配置文件。删除前会在 backups 目录保留一份备份。")
-        }
-        .alert("覆盖本地修改？", isPresented: $confirmingOverwrite) {
-            Button("取消", role: .cancel) {}
-            Button("更新并覆盖", role: .destructive) { Task { await state.updateProfile(profile.id) } }
-        } message: {
-            Text("「\(profile.name)」在本地改过，更新订阅会用下载内容覆盖这些修改。覆盖前会在 backups 目录保留一份备份。")
         }
         .panel(padding: 12)
         .overlay(
@@ -211,13 +195,32 @@ private struct ProfileCard: View {
                 Button("打开订阅主页") { NSWorkspace.shared.open(u) }
             }
             Divider()
-            Button("删除…", role: .destructive) { confirmingDelete = true }
+            Button("删除…", role: .destructive, action: confirmDelete)
         } label: { Image(systemName: "ellipsis.circle") }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
             .help("更多操作")
             .accessibilityLabel("「\(profile.name)」的更多操作")
+    }
+
+    private func confirmDelete() {
+        let id = profile.id
+        state.confirm("删除配置「\(profile.name)」？",
+                      message: state.selectedProfileID == id
+                          ? "会删除配置文件，并切换到其他配置重启内核。删除前会在 backups 目录保留一份备份。"
+                          : "会删除配置文件。删除前会在 backups 目录保留一份备份。") {
+            Task { await state.deleteProfile(id) }
+        }
+    }
+
+    private func confirmOverwrite() {
+        let id = profile.id
+        state.confirm("覆盖本地修改？",
+                      message: "「\(profile.name)」在本地改过，更新订阅会用下载内容覆盖这些修改。覆盖前会在 backups 目录保留一份备份。",
+                      confirmTitle: "更新并覆盖") {
+            Task { await state.updateProfile(id) }
+        }
     }
 
     private func usageBar(_ sub: SubscriptionInfo) -> some View {

@@ -156,6 +156,28 @@ struct RuleProvidersPage: View {
                     Pasteboard.copy(definition.url)
                 }
             }
+            Divider()
+            Button("删除规则集…", role: .destructive) { confirmDelete(definition) }
+                .disabled(!state.canEditSelectedProfile)
+        }
+        .accessibilityAction(named: "编辑规则集") { route = .edit(definition) }
+        .accessibilityAction(named: "删除规则集") {
+            if state.canEditSelectedProfile { confirmDelete(definition) }
+        }
+    }
+
+    private func confirmDelete(_ definition: RuleProviderDefinition) {
+        guard let profileID = state.selectedProfileID else { return }
+        state.confirm("删除规则集「\(definition.name)」？",
+                      message: "只删除当前 YAML 中的规则集定义，不删除本地文件。若仍被 RULE-SET 引用，需先修改引用规则。") {
+            Task {
+                do {
+                    try await state.deleteRuleProvider(named: definition.name, profileID: profileID)
+                    showList()
+                } catch {
+                    state.errorMessage = "删除规则集失败：\(error.localizedDescription)"
+                }
+            }
         }
     }
 
@@ -267,7 +289,6 @@ struct RuleProviderEditorPage: View {
     @State private var interval: String
     @State private var policy = "DIRECT"
     @State private var saving = false
-    @State private var confirmingDelete = false
     @State private var error: String?
 
     init(original: RuleProviderDefinition? = nil, profileID: UUID, back: @escaping () -> Void) {
@@ -323,7 +344,11 @@ struct RuleProviderEditorPage: View {
                 } else {
                     HStack(spacing: 10) {
                         if original != nil {
-                            Button(role: .destructive) { confirmingDelete = true } label: { Image(systemName: "trash") }
+                            Button(role: .destructive) {
+                                state.confirm("删除规则集「\(provider.name)」？",
+                                              message: "只删除当前 YAML 中的规则集定义，不删除本地文件。若仍被 RULE-SET 引用，需先修改引用规则。",
+                                              action: delete)
+                            } label: { Image(systemName: "trash") }
                                 .help("删除规则集").accessibilityLabel("删除规则集")
                                 .disabled(!canEdit)
                         }
@@ -392,12 +417,6 @@ struct RuleProviderEditorPage: View {
         .disabled(saving)
         .onChange(of: provider.type) {
             if provider.type == "inline" { provider.format = "yaml" }
-        }
-        .alert("删除规则集「\(provider.name)」？", isPresented: $confirmingDelete) {
-            Button("取消", role: .cancel) {}
-            Button("删除", role: .destructive, action: delete)
-        } message: {
-            Text("只删除当前 YAML 中的规则集定义，不删除本地文件。若仍被 RULE-SET 引用，需先修改引用规则。")
         }
     }
 

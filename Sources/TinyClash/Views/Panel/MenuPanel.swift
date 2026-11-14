@@ -99,6 +99,13 @@ struct MenuPanel: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
+        // 确认框显示时禁用下层内容，避免其中的 ⎋ 返回等快捷键抢先响应
+        .disabled(state.confirmation != nil)
+        .overlay {
+            if let confirmation = state.confirmation {
+                ConfirmationOverlay(confirmation: confirmation)
+            }
+        }
         .frame(width: PanelMetrics.width, height: PanelMetrics.height)
         .background(Theme.canvas.ignoresSafeArea())
         .accentColor(Theme.accent)
@@ -112,11 +119,18 @@ struct MenuPanel: View {
         .onChange(of: tab) {
             visited.insert(tab)
             clearFocus()
+            state.confirmation = nil
         }
         .onChange(of: state.addSubscriptionRequest) {
             if state.addSubscriptionRequest != nil { tab = .profiles }
         }
         #if TINYCLASH_PREVIEW
+        .task {
+            // 截图检查：启动参数 -uiConfirmDemo YES 显示一个示例确认框
+            guard UserDefaults.standard.bool(forKey: "uiConfirmDemo") else { return }
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            state.confirm("删除这条规则？", message: "RULE-SET,telegram,美国\n会从当前配置的 YAML 中删除。") {}
+        }
         .task {
             // 截图检查：启动参数 -uiCycleTabs YES，内核就绪并测速后每 4 秒切换一个标签页
             guard UserDefaults.standard.bool(forKey: "uiCycleTabs") else { return }

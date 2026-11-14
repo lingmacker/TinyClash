@@ -11,7 +11,6 @@ struct ProxiesTab: View {
     }()
 
     @State private var route = Route.list
-    @State private var deletingGroup: String?
 
     private enum Route { case list, add, edit(CustomGroup), requests }
 
@@ -40,7 +39,6 @@ struct ProxiesTab: View {
                     openGroup = nil
                 }
             }
-            .deleteGroupConfirmation($deletingGroup)
         }
     }
 
@@ -105,7 +103,7 @@ struct ProxiesTab: View {
                         if group.name != "GLOBAL" {
                             Button("编辑策略组") { edit(group.name) }
                                 .disabled(!canEditGroups)
-                            Button("删除策略组…", role: .destructive) { deletingGroup = group.name }
+                            Button("删除策略组…", role: .destructive) { state.confirmDeleteGroup(group.name) }
                                 .disabled(!canEditGroups)
                         }
                     }
@@ -113,36 +111,11 @@ struct ProxiesTab: View {
                         if group.name != "GLOBAL" && canEditGroups { edit(group.name) }
                     }
                     .accessibilityAction(named: "删除策略组") {
-                        if group.name != "GLOBAL" && canEditGroups { deletingGroup = group.name }
+                        if group.name != "GLOBAL" && canEditGroups { state.confirmDeleteGroup(group.name) }
                     }
                 }
             }
             .padding(14)
-        }
-    }
-}
-
-extension View {
-    /// 删除策略组前确认；删除会直接改写当前配置的 YAML
-    func deleteGroupConfirmation(_ name: Binding<String?>, onDeleted: @escaping () -> Void = {}) -> some View {
-        modifier(DeleteGroupConfirmation(name: name, onDeleted: onDeleted))
-    }
-}
-
-private struct DeleteGroupConfirmation: ViewModifier {
-    @Environment(AppState.self) private var state
-    @Binding var name: String?
-    var onDeleted: () -> Void
-
-    func body(content: Content) -> some View {
-        content.alert("删除策略组「\(name ?? "")」？", isPresented: Binding(get: { name != nil }, set: { if !$0 { name = nil } })) {
-            Button("取消", role: .cancel) {}
-            Button("删除", role: .destructive) {
-                guard let target = name else { return }
-                Task { if await state.deleteGroup(named: target) { onDeleted() } }
-            }
-        } message: {
-            Text("会从当前配置的 YAML 中删除该策略组；仍被规则或其他策略组引用时不会删除。")
         }
     }
 }
@@ -227,7 +200,6 @@ private struct GroupDetail: View {
     var edit: () -> Void
     var back: () -> Void
     @State private var search = ""
-    @State private var confirmingDelete: String?
     @AppStorage("sortNodesByDelay") private var sortByDelay = false
 
     /// 组内节点协议都相同时，每行重复协议名没有信息量，只在混用时显示
@@ -265,7 +237,7 @@ private struct GroupDetail: View {
                         if group.name != "GLOBAL" {
                             Divider()
                             Button("编辑策略组…", action: edit).disabled(!canEdit)
-                            Button("删除策略组…", role: .destructive) { confirmingDelete = group.name }
+                            Button("删除策略组…", role: .destructive) { state.confirmDeleteGroup(group.name, onDeleted: back) }
                                 .disabled(!canEdit)
                         }
                     } label: {
@@ -309,7 +281,6 @@ private struct GroupDetail: View {
                 .padding(14)
             }
         }
-        .deleteGroupConfirmation($confirmingDelete, onDeleted: back)
         .task(id: group.name) {
             // 进入分组时还没有任何延迟数据，自动测一次，方便挑选节点
             let all = group.all ?? []

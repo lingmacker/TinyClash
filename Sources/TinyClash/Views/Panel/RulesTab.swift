@@ -7,7 +7,6 @@ struct RulesTab: View {
     @State private var loading = false
     @State private var error: String?
     @State private var requestID = UUID()
-    @State private var deleting: (rule: RuleItem, index: Int)?
 
     private enum Route {
         case list, add, edit(RuleEditorPage.Editing), providers
@@ -53,14 +52,12 @@ struct RulesTab: View {
                     .background(Theme.canvas)
             }
         }
-        .alert("删除这条规则？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
-            Button("取消", role: .cancel) {}
-            Button("删除", role: .destructive) {
-                guard let target = deleting else { return }
-                Task { await state.deleteRule(target.rule, at: target.index) }
-            }
-        } message: {
-            Text(deleting.map { "\($0.rule.type),\($0.rule.payload),\($0.rule.proxy)\n会从当前配置的 YAML 中删除。" } ?? "")
+    }
+
+    private func confirmDelete(_ rule: RuleItem, at index: Int) {
+        let text = [ConfigOverlay.yamlRuleType(rule.type), rule.payload, rule.proxy].filter { !$0.isEmpty }.joined(separator: ",")
+        state.confirm("删除这条规则？", message: "\(text)\n会从当前配置的 YAML 中删除。") {
+            Task { await state.deleteRule(rule, at: index) }
         }
     }
 
@@ -136,14 +133,14 @@ struct RulesTab: View {
                                 Button("复制匹配内容") { copy(rule.payload) }.disabled(rule.payload.isEmpty)
                                 Button("复制目标策略") { copy(rule.proxy) }
                                 Divider()
-                                Button("删除规则…", role: .destructive) { deleting = (rule, index) }
+                                Button("删除规则…", role: .destructive) { confirmDelete(rule, at: index) }
                                     .disabled(!canEditRules)
                             }
                             .accessibilityAction(named: "编辑规则") {
                                 open(rule, at: index)
                             }
                             .accessibilityAction(named: "删除规则") {
-                                if canEditRules { deleting = (rule, index) }
+                                if canEditRules { confirmDelete(rule, at: index) }
                             }
                         }
                     }

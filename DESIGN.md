@@ -229,7 +229,7 @@ The Rules tab mirrors Proxies' card-list structure: its toolbar shows the rule c
 
 ### Inline errors
 
-The panel-level error banner uses failure red at 10% opacity, tile corners, a red warning symbol, caption text, and native close/copy actions. Message text expands from two to twelve lines on click and supports text selection. Home core-state notices similarly distinguish starting, stopped, and failed states, with recovery actions where implemented.
+Destructive confirmations (deleting profiles, rules, groups and rule sets, overwriting a locally modified subscription) never use system alerts: in a menu-bar panel an alert takes key focus, the panel closes, and the action is lost. `ConfirmationOverlay` draws inside the panel instead: a 72% canvas scrim that cancels on tap, a 290 pt raised card (panel fill, `rounded.panel`, hairline border, soft neutral shadow) with headline title, secondary message, and two large bordered buttons; 取消 takes ⎋, the destructive action uses semibold failure-red text and has no Return shortcut. Underlying content is disabled while it is shown, and switching tabs dismisses it. The panel-level error banner uses failure red at 10% opacity, tile corners, a red warning symbol, caption text, and native close/copy actions. Message text expands from two to twelve lines on click and supports text selection. Home core-state notices similarly distinguish starting, stopped, and failed states, with recovery actions where implemented.
 
 ## Do's and Don'ts
 

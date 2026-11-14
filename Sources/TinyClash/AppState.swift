@@ -80,6 +80,8 @@ final class AppState {
     var needsCoreRestart = false
     /// 正在应用修改或重启内核，顶部状态显示「重启中」
     private(set) var restarting = false
+    /// 面板内的确认框（系统 alert 会让菜单栏面板失去焦点并收起，操作随之丢失）
+    var confirmation: PanelConfirmation?
     /// 请求打开「添加订阅」页（来自首页空状态或 clash:// 链接），值为预填的订阅链接
     var addSubscriptionRequest: String?
     var pendingNewGroupNames: Set<String> = []
@@ -1285,6 +1287,18 @@ final class AppState {
     }
 
     // MARK: - Misc
+
+    func confirm(_ title: String, message: String, confirmTitle: String = "删除",
+                 action: @escaping @MainActor () -> Void) {
+        confirmation = PanelConfirmation(title: title, message: message, confirmTitle: confirmTitle, action: action)
+    }
+
+    /// 删除策略组前确认；删除会直接改写当前配置的 YAML
+    func confirmDeleteGroup(_ name: String, onDeleted: @escaping @MainActor () -> Void = {}) {
+        confirm("删除策略组「\(name)」？", message: "会从当前配置的 YAML 中删除该策略组；仍被规则或其他策略组引用时不会删除。") {
+            Task { if await self.deleteGroup(named: name) { onDeleted() } }
+        }
+    }
 
     var launchAtLogin: Bool {
         get { launchAtLoginStatus == .enabled || launchAtLoginStatus == .requiresApproval }

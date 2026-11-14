@@ -214,6 +214,63 @@ struct RouteRibbon: View {
     }
 }
 
+struct PanelConfirmation: Identifiable {
+    let id = UUID()
+    var title: String
+    var message: String
+    var confirmTitle: String
+    var action: @MainActor () -> Void
+}
+
+/// 绘制在面板内部的确认框：遮住面板内容，⎋ 取消；破坏性按钮不绑定回车，避免误删
+struct ConfirmationOverlay: View {
+    @Environment(AppState.self) private var state
+    let confirmation: PanelConfirmation
+
+    var body: some View {
+        ZStack {
+            Theme.canvas.opacity(0.72)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { state.confirmation = nil }
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: Theme.Space.m) {
+                Text(confirmation.title).font(.headline)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(confirmation.message).font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                HStack(spacing: Theme.Space.s) {
+                    Button { state.confirmation = nil } label: { Text("取消").frame(maxWidth: .infinity) }
+                        .buttonStyle(.bordered)
+                        .keyboardShortcut(.cancelAction)
+                    Button(role: .destructive) {
+                        state.confirmation = nil
+                        confirmation.action()
+                    } label: {
+                        // 红色文字不依赖窗口是否激活；系统的醒目样式在非活动窗口里会变灰
+                        Text(confirmation.confirmTitle).fontWeight(.semibold).foregroundStyle(Theme.failure)
+                            .frame(maxWidth: .infinity)
+                    }
+                        .buttonStyle(.bordered)
+                }
+                .controlSize(.large)
+                .padding(.top, 4)
+            }
+            .padding(Theme.Space.l)
+            .frame(width: 290)
+            .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous)
+                    .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
+            )
+            .shadow(color: Color(nsColor: .shadowColor).opacity(0.18), radius: 18, y: 6)
+            .accessibilityElement(children: .contain)
+            .accessibilityAddTraits(.isModal)
+        }
+    }
+}
+
 /// 状态指示：接管中 / 未接管 / 需重启生效 / 内核状态
 struct StatusBadge: View {
     @Environment(AppState.self) private var state
