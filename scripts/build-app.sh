@@ -52,7 +52,7 @@ else
 fi
 
 echo "==> 准备 Geo 数据库 ($GEO_VERSION)"
-# latest 每次构建刷新；固定提交的快照仍可复用缓存。
+# 优先复用 vendor 缓存；latest 和固定提交都只下载缺失或为空的文件。
 GEO_DIR="$VENDOR/geo/$GEO_VERSION"
 if [[ "$GEO_VERSION" == "latest" ]]; then
   GEO_URL="https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest"
@@ -61,10 +61,12 @@ else
 fi
 mkdir -p "$GEO_DIR"
 for f in geoip.metadb geosite.dat geoip.dat; do
-  if [[ "$GEO_VERSION" == "latest" || ! -s "$GEO_DIR/$f" ]]; then
+  if [[ ! -s "$GEO_DIR/$f" ]]; then
     echo "    下载 $f"
     curl -fSL --retry 3 -o "$GEO_DIR/$f.tmp" "$GEO_URL/$f"
     mv "$GEO_DIR/$f.tmp" "$GEO_DIR/$f"
+  else
+    echo "    使用缓存 $f"
   fi
 done
 

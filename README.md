@@ -15,11 +15,11 @@ open build/TinyClash.app
 
 - `MIHOMO_VERSION`：mihomo Release 标签，当前为 `v1.19.34`。
 - `METACUBEXD_VERSION`：metacubexd Release 标签，当前为 `v1.274.6`。
-- `GEO_VERSION`：默认 `latest`，每次构建从 meta-rules-dat 最新 Release 刷新 Geo 数据；也可设置为 `release` 分支的完整提交哈希，固定快照并复用缓存。
+- `GEO_VERSION`：默认 `latest`，缺少缓存时从 meta-rules-dat 最新 Release 下载 Geo 数据；也可设置为 `release` 分支的完整提交哈希，固定快照。
 
 这三个值均可通过同名环境变量临时覆盖，`MIHOMO_BIN` 仍支持指定本地内核。mihomo 和 metacubexd 保持固定版本，不会自动升级；内核下载失败时不会改用其他版本。
 
-依赖按版本缓存在 `vendor/mihomo-<架构>-<版本>`、`vendor/geo/<latest 或提交哈希>/` 和 `vendor/ui/<版本>/`。固定版本使用独立缓存，Geo 的 `latest` 缓存每次构建都会刷新。`vendor/` 已加入 Git 忽略规则，`dependencies.conf` 则纳入版本控制；构建产物仍输出到 `build/`。旧的 `build/cache/` 或未带版本目录的依赖不会自动复用。
+依赖按版本缓存在 `vendor/mihomo-<架构>-<版本>`、`vendor/geo/<latest 或提交哈希>/` 和 `vendor/ui/<版本>/`。构建时优先检查并复用 `vendor/` 中的依赖，包括 Geo 的 `latest` 缓存；只下载缺失或为空的 Geo 文件。需要更新 Geo 时，删除 `vendor/geo/latest/` 中的对应文件后重新构建。`vendor/` 已加入 Git 忽略规则，`dependencies.conf` 则纳入版本控制；构建产物仍输出到 `build/`。旧的 `build/cache/` 或未带版本目录的依赖不会自动复用。
 
 ## 功能
 
