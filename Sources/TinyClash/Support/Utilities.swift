@@ -93,6 +93,14 @@ enum Format {
         return f.string(from: d)
     }
 
+    static func updateAge(_ date: Date, now: Date = Date()) -> String {
+        let elapsed = max(0, now.timeIntervalSince(date))
+        if elapsed < 60 { return "刚刚" }
+        if elapsed < 3600 { return "\(Int(elapsed / 60)) 分钟前" }
+        if elapsed < 86400 { return "\(Int(elapsed / 3600)) 小时前" }
+        return "\(Int(elapsed / 86400)) 天前"
+    }
+
     static func relative(_ d: Date) -> String {
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .short

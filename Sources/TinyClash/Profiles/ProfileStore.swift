@@ -99,6 +99,9 @@ final class ProfileStore {
         case addGroup(CustomGroup)
         case deleteGroup(String)
         case updateGroup(String, CustomGroup)
+        case addRuleProvider(RuleProviderDefinition, policy: String? = nil)
+        case updateRuleProvider(String, RuleProviderDefinition)
+        case deleteRuleProvider(String)
     }
 
     struct ValidatedEdit {
@@ -125,6 +128,15 @@ final class ProfileStore {
               let merged = try? ConfigOverlay.apply(rules: profile.customRules ?? [], groups: profile.customGroups ?? [], to: yaml)
         else { return nil }
         return ConfigOverlay.group(named: name, in: merged)
+    }
+
+    /// Throw rather than hide unsupported YAML or an unreadable profile as an empty list.
+    func ruleProviders(in profile: Profile) throws -> [RuleProviderDefinition] {
+        let file = profilesDirectory.appendingPathComponent(profile.fileName)
+        guard FileManager.default.fileExists(atPath: file.path) else { throw ProfileError.missingProfile }
+        let yaml = try String(contentsOf: file, encoding: .utf8)
+        let merged = try ConfigOverlay.apply(rules: profile.customRules ?? [], groups: profile.customGroups ?? [], to: yaml)
+        return try ConfigOverlay.ruleProviders(in: merged)
     }
 
     func groupSummaries(in profile: Profile) -> [ConfigOverlay.GroupSummary] {
@@ -163,6 +175,9 @@ final class ProfileStore {
         case .addGroup(let group): edited = try ConfigOverlay.addGroup(group, to: migrated)
         case .deleteGroup(let name): edited = try ConfigOverlay.removeGroup(named: name, from: migrated)
         case .updateGroup(let name, let group): edited = try ConfigOverlay.replaceGroup(named: name, with: group, in: migrated)
+        case .addRuleProvider(let provider, let policy): edited = try ConfigOverlay.addRuleProvider(provider, policy: policy, to: migrated)
+        case .updateRuleProvider(let name, let provider): edited = try ConfigOverlay.replaceRuleProvider(named: name, with: provider, in: migrated)
+        case .deleteRuleProvider(let name): edited = try ConfigOverlay.removeRuleProvider(named: name, from: migrated)
         }
         let data = Data(edited.utf8)
         let temporary = profilesDirectory.appendingPathComponent(".validate-\(UUID().uuidString).yaml")

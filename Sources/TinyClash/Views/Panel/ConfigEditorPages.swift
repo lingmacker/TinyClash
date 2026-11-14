@@ -3,6 +3,8 @@ import SwiftUI
 // MARK: - 添加规则
 
 struct RuleEditorPage: View {
+    private static let pickerWidth: CGFloat = 190
+
     struct RuleType: Hashable {
         var name: String
         var example: String
@@ -83,6 +85,15 @@ struct RuleEditorPage: View {
 
     private var hasPayload: Bool { !Self.isMatch(type.name) }
 
+    private var ruleProviderNames: [String] {
+        ((try? state.ruleProviderDefinitions()) ?? []).map(\.name)
+    }
+
+    private var ruleProviderOptions: [String] {
+        let names = ruleProviderNames
+        return payload.isEmpty || names.contains(payload) ? names : names + [payload]
+    }
+
     private var rule: String {
         var parts = [type.name]
         if hasPayload { parts.append(payload.trimmingCharacters(in: .whitespaces)) }
@@ -124,11 +135,19 @@ struct RuleEditorPage: View {
                             Picker("", selection: $type) {
                                 ForEach(typeOptions, id: \.self) { Text($0.name).tag($0) }
                             }
-                            .labelsHidden().fixedSize()
+                            .labelsHidden().frame(width: Self.pickerWidth)
                         }
                         if hasPayload {
                             PanelRow(title: "内容") {
-                                TextField(type.example, text: $payload).textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                                if type.name == "RULE-SET", !ruleProviderNames.isEmpty {
+                                    Picker("规则集", selection: $payload) {
+                                        if payload.isEmpty { Text("选择规则集").tag("") }
+                                        ForEach(ruleProviderOptions, id: \.self) { Text($0).tag($0) }
+                                    }
+                                    .labelsHidden().frame(width: Self.pickerWidth)
+                                } else {
+                                    TextField(type.example, text: $payload).textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                                }
                             }
                         }
                         PanelRow(title: "策略", divider: type.noResolve) {
@@ -136,7 +155,7 @@ struct RuleEditorPage: View {
                                 Picker("", selection: $policy) {
                                     ForEach(policyOptions, id: \.self) { Text($0).tag($0) }
                                 }
-                                .labelsHidden().frame(maxWidth: 170)
+                                .labelsHidden().frame(width: Self.pickerWidth)
                             } else {
                                 TextField("DIRECT / 分组名", text: $policy).textFieldStyle(.plain).multilineTextAlignment(.trailing)
                             }
@@ -164,7 +183,12 @@ struct RuleEditorPage: View {
             }
         }
         .disabled(saving)
-        .onChange(of: type) { if !type.noResolve { noResolve = false } }
+        .onChange(of: type) {
+            if !type.noResolve { noResolve = false }
+            if type.name == "RULE-SET", !ruleProviderNames.contains(payload) {
+                payload = ruleProviderNames.first ?? ""
+            }
+        }
     }
 
     private func save() {
@@ -380,7 +404,7 @@ struct GroupEditorPage: View {
     }
 }
 
-private struct ConfigWriteNotice: View {
+struct ConfigWriteNotice: View {
     @Environment(AppState.self) private var state
     let placement: String
 

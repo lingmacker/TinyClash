@@ -104,6 +104,10 @@ struct ProviderItem: Decodable, Identifiable {
     var behavior: String?
     var subscriptionInfo: SubscriptionInfoDTO?
 
+    var isRemoteRuleProvider: Bool {
+        vehicleType.caseInsensitiveCompare("HTTP") == .orderedSame
+    }
+
     struct SubscriptionInfoDTO: Decodable {
         var Upload: Int64?
         var Download: Int64?
@@ -147,10 +151,13 @@ struct Connection: Decodable, Identifiable {
         }
     }
 
-    var startDate: Date? { ISO8601DateFormatter.mihomo.date(from: start) }
+    var startDate: Date? {
+        ISO8601DateFormatter.mihomo.date(from: start) ?? ISO8601DateFormatter.mihomoSeconds.date(from: start)
+    }
 }
 
 extension ISO8601DateFormatter {
+    static let mihomoSeconds = ISO8601DateFormatter()
     static let mihomo: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -168,12 +175,14 @@ enum APIError: LocalizedError {
     case http(Int, String)
     case notRunning
     case noNodeSubscriptions
+    case noRemoteRuleProviders
 
     var errorDescription: String? {
         switch self {
         case .http(let code, let msg): return "HTTP \(code): \(msg)"
         case .notRunning: return "内核未运行"
         case .noNodeSubscriptions: return "当前配置没有可更新的 HTTP 节点订阅（proxy-providers）"
+        case .noRemoteRuleProviders: return "当前配置没有已加载的 HTTP 规则集，请先保存规则集并重启内核"
         }
     }
 }
@@ -322,14 +331,17 @@ final class StreamClient: @unchecked Sendable {
     private let url: URL
     private let session: URLSession
     private let onMessage: @Sendable (Data) -> Void
+    private let onFailure: (@Sendable (String) -> Void)?
     private var task: URLSessionWebSocketTask?
     private var active = false
     private let lock = NSLock()
 
-    init(url: URL, session: URLSession, onMessage: @escaping @Sendable (Data) -> Void) {
+    init(url: URL, session: URLSession, onFailure: (@Sendable (String) -> Void)? = nil,
+         onMessage: @escaping @Sendable (Data) -> Void) {
         self.url = url
         self.session = session
         self.onMessage = onMessage
+        self.onFailure = onFailure
     }
 
     func start() {
@@ -363,7 +375,9 @@ final class StreamClient: @unchecked Sendable {
                 @unknown default: break
                 }
                 self.receive(t)
-            case .failure:
+            case .failure(let error):
+                guard self.isActive else { return }
+                self.onFailure?(error.localizedDescription)
                 DispatchQueue.global().asyncAfter(deadline: .now() + 1.5) { [weak self] in
                     guard let self, self.isActive else { return }
                     self.lock.lock(); let same = self.task === t; self.lock.unlock()

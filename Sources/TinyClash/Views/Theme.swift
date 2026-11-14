@@ -174,6 +174,7 @@ extension PanelHeader where Accessory == EmptyView {
 struct Tag: View {
     var text: String
     var tint: Color = .secondary
+    var cornerRadius: CGFloat? = nil
 
     var body: some View {
         Text(text)
@@ -181,7 +182,13 @@ struct Tag: View {
             .foregroundStyle(tint)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(tint.opacity(0.12), in: Capsule())
+            .background {
+                if let cornerRadius {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).fill(tint.opacity(0.12))
+                } else {
+                    Capsule().fill(tint.opacity(0.12))
+                }
+            }
     }
 }
 

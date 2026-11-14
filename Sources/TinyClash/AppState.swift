@@ -55,6 +55,9 @@ final class AppState {
     var downloadTotal: Int64 = 0
     var memory: Int64 = 0
     var connections: [Connection] = []
+    var requestLog = RequestLog()
+    var hasConnectionSnapshot = false
+    var connectionStreamError: String?
 
     var proxies: [String: ProxyItem] = [:]
     var groupNames: [String] = []
@@ -64,18 +67,32 @@ final class AppState {
     var profiles: [Profile] = []
     var updatingProfiles: Set<UUID> = []
     var updatingProfileNodes: Set<UUID> = []
+    var updatingRuleProviders: Set<String> = []
     private var editingProfiles: Set<UUID> = []
     private(set) var profileRevision = 0
     var needsCoreRestart = false
     var pendingNewGroupNames: Set<String> = []
     var isEditingSelectedProfile: Bool { selectedProfileID.map { editingProfiles.contains($0) } ?? false }
+    var canEditSelectedProfile: Bool {
+        guard let profile = selectedProfile else { return false }
+        return !busy && coreState != .starting && !isEditingSelectedProfile && !updatingProfiles.contains(profile.id)
+    }
 
     // MARK: Persisted settings
 
     private let defaults = UserDefaults.standard
 
     var selectedProfileID: UUID? {
-        didSet { defaults.set(selectedProfileID?.uuidString, forKey: "selectedProfileID") }
+        didSet {
+            defaults.set(selectedProfileID?.uuidString, forKey: "selectedProfileID")
+            if oldValue != selectedProfileID {
+                requestLog.reset()
+                connections = []
+                hasConnectionSnapshot = false
+                connectionStreamError = nil
+                connectionStreamID = UUID()
+            }
+        }
     }
     var systemProxyEnabled: Bool { didSet { defaults.set(systemProxyEnabled, forKey: "systemProxy") } }
     var tunEnabled: Bool { didSet { defaults.set(tunEnabled, forKey: "tun") } }
@@ -99,6 +116,7 @@ final class AppState {
     let core = CoreManager()
     private let store = ProfileStore()
     private var streams: [StreamClient] = []
+    private var connectionStreamID = UUID()
     private var trafficCounter = 0
     private var autoUpdateTimer: Timer?
     private var proxyRefreshTask: Task<Void, Never>?
@@ -191,6 +209,7 @@ final class AppState {
             return
         }
         stopStreams()
+        requestLog.reset()
         needsCoreRestart = false
         pendingNewGroupNames = []
         coreState = .starting
@@ -450,7 +469,9 @@ final class AppState {
 
     /// 规则可指向的策略：内置策略、分组、节点
     var policyNames: [String] {
-        Self.builtinPolicies + groupNames.filter { $0 != "GLOBAL" } + nodeNames
+        let groups = isRunning && !needsCoreRestart
+            ? groupNames : selectedProfile.map { store.groupSummaries(in: $0).map(\.name) } ?? []
+        return Self.builtinPolicies + groups.filter { $0 != "GLOBAL" } + nodeNames
     }
 
     /// 主策略组：全局模式为 GLOBAL，规则模式为配置中的第一个分组
@@ -509,13 +530,28 @@ final class AppState {
             guard let m = try? JSONDecoder().decode(MemorySample.self, from: data) else { return }
             Task { @MainActor in AppState.shared.memory = m.inuse }
         }
-        let conns = StreamClient(url: api.webSocketURL("/connections"), session: api.session) { data in
-            guard let snap = try? JSONDecoder().decode(ConnectionsSnapshot.self, from: data) else { return }
+        let streamID = connectionStreamID
+        let conns = StreamClient(url: api.webSocketURL("/connections", query: "interval=1000"), session: api.session, onFailure: { message in
             Task { @MainActor in
                 let s = AppState.shared
+                guard s.connectionStreamID == streamID, s.api === api, s.isRunning else { return }
+                s.connectionStreamError = "连接数据流中断，正在重连：\(message)"
+            }
+        }) { data in
+            let snapshot = try? JSONDecoder().decode(ConnectionsSnapshot.self, from: data)
+            Task { @MainActor in
+                let s = AppState.shared
+                guard s.connectionStreamID == streamID, s.api === api, s.isRunning else { return }
+                guard let snap = snapshot else {
+                    s.connectionStreamError = "无法解析内核连接数据，请检查内核版本。"
+                    return
+                }
+                s.connectionStreamError = nil
+                s.hasConnectionSnapshot = true
                 s.uploadTotal = snap.uploadTotal
                 s.downloadTotal = snap.downloadTotal
                 s.connections = (snap.connections ?? []).sorted { $0.start > $1.start }
+                s.requestLog.ingest(s.connections)
             }
         }
         streams = [traffic, memory, conns]
@@ -530,7 +566,15 @@ final class AppState {
         }
     }
 
+    func clearRequestLog() {
+        requestLog.clear()
+    }
+
     private func stopStreams() {
+        connectionStreamID = UUID()
+        hasConnectionSnapshot = false
+        connectionStreamError = nil
+        requestLog.finish()
         streams.forEach { $0.stop() }
         streams = []
         proxyRefreshTask?.cancel()
@@ -823,6 +867,64 @@ final class AppState {
         selectedProfile.map { store.ruleItems(in: $0) } ?? []
     }
 
+    func ruleProviderDefinitions() throws -> [RuleProviderDefinition] {
+        guard let profile = selectedProfile else { throw ProfileError.missingProfile }
+        return try store.ruleProviders(in: profile)
+    }
+
+    func saveRuleProvider(_ provider: RuleProviderDefinition, replacing name: String?, profileID: UUID, policy: String? = nil) async throws {
+        guard selectedProfileID == profileID else { throw ProfileError.profileChanged }
+        guard !busy, coreState != .starting else { throw ProfileError.profileBusy }
+        if let name {
+            try await applyProfileEdit(.updateRuleProvider(name, provider))
+        } else {
+            try await applyProfileEdit(.addRuleProvider(provider, policy: policy))
+        }
+    }
+
+    func deleteRuleProvider(named name: String, profileID: UUID) async throws {
+        guard selectedProfileID == profileID else { throw ProfileError.profileChanged }
+        guard !busy, coreState != .starting else { throw ProfileError.profileBusy }
+        try await applyProfileEdit(.deleteRuleProvider(name))
+    }
+
+    /// 更新运行中的 HTTP 规则集；不改写 YAML，也不重启内核。
+    func updateRuleProviders(named name: String? = nil) async {
+        guard isRunning, !busy, !needsCoreRestart, !isEditingSelectedProfile,
+              let profile = selectedProfile, !updatingProfiles.contains(profile.id), let api else { return }
+        busy = true
+        defer {
+            updatingRuleProviders = []
+            busy = false
+        }
+        do {
+            let providers = try await api.ruleProviders().filter {
+                $0.isRemoteRuleProvider && (name == nil || $0.name == name)
+            }
+            guard self.api === api, selectedProfileID == profile.id, isRunning else { return }
+            guard !providers.isEmpty else { throw APIError.noRemoteRuleProviders }
+            updatingRuleProviders = Set(providers.map(\.name))
+            var failed: [String] = []
+            for provider in providers {
+                try Task.checkCancellation()
+                guard self.api === api, selectedProfileID == profile.id, isRunning else { return }
+                do {
+                    try await api.updateRuleProvider(provider.name)
+                } catch {
+                    try Task.checkCancellation()
+                    failed.append("\(provider.name)：\(error.localizedDescription)")
+                }
+            }
+            guard self.api === api, selectedProfileID == profile.id, isRunning else { return }
+            if !failed.isEmpty { errorMessage = "以下规则集更新失败：\(failed.joined(separator: "；"))" }
+        } catch is CancellationError {
+            return
+        } catch {
+            guard self.api === api, selectedProfileID == profile.id, isRunning else { return }
+            errorMessage = "更新规则集失败：\(error.localizedDescription)"
+        }
+    }
+
     private func applyProfileEdit(_ edit: ProfileStore.ProfileEdit) async throws {
         guard let profile = selectedProfile else { throw ProfileError.missingProfile }
         guard !updatingProfiles.contains(profile.id), !editingProfiles.contains(profile.id) else {
@@ -842,7 +944,8 @@ final class AppState {
                 pendingNewGroupNames.insert(group.name)
             case .deleteGroup(let name):
                 pendingNewGroupNames.remove(name)
-            case .updateGroup, .addRule, .deleteRule, .updateRule:
+            case .updateGroup, .addRule, .deleteRule, .updateRule,
+                 .addRuleProvider, .updateRuleProvider, .deleteRuleProvider:
                 break
             }
             syncPendingGroupsFromYAML()

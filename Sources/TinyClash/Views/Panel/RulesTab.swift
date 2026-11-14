@@ -8,13 +8,9 @@ struct RulesTab: View {
     @State private var error: String?
     @State private var requestID = UUID()
 
-    private enum Route { case list, add, edit(RuleEditorPage.Editing) }
+    private enum Route { case list, add, edit(RuleEditorPage.Editing), providers }
 
-    private var canEditRules: Bool {
-        guard let id = state.selectedProfileID, state.selectedProfile != nil else { return false }
-        return !state.busy && state.coreState != .starting &&
-            !state.isEditingSelectedProfile && !state.updatingProfiles.contains(id)
-    }
+    private var canEditRules: Bool { state.canEditSelectedProfile }
 
     private struct LoadKey: Equatable {
         var running: Bool
@@ -41,6 +37,9 @@ struct RulesTab: View {
             RuleEditorPage { route = .list }
         case .edit(let editing):
             RuleEditorPage(editing: editing, canEdit: canEditRules) { route = .list }
+        case .providers:
+            RuleProvidersPage { route = .list }
+                .id(state.selectedProfileID)
         }
     }
 
@@ -59,6 +58,10 @@ struct RulesTab: View {
                 .help(state.needsCoreRestart ? "从配置文件刷新规则（需重启内核后生效）" : "从内核刷新规则")
                 .accessibilityLabel("刷新规则")
                 .disabled(!state.isRunning || loading)
+                Button { route = .providers } label: {
+                    Label("规则集", systemImage: "square.stack.3d.up")
+                }
+                .help("管理当前配置的 rule-providers")
                 Button { route = .add } label: {
                     Label("添加规则", systemImage: "plus")
                 }
@@ -217,7 +220,7 @@ private struct RuleCard: View {
                     .fixedSize()
             }
             HStack(spacing: 8) {
-                Tag(text: rule.type)
+                Tag(text: rule.type, cornerRadius: 4)
                     .fixedSize()
                 Spacer(minLength: 8)
                 Text(rule.proxy)

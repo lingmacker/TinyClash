@@ -7,7 +7,7 @@ enum PanelTab: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .home: return "首页"
-        case .proxies: return "代理"
+        case .proxies: return "策略"
         case .profiles: return "配置"
         case .rules: return "规则"
         case .settings: return "设置"

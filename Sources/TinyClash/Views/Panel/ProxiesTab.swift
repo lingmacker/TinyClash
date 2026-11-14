@@ -12,7 +12,7 @@ struct ProxiesTab: View {
 
     @State private var route = Route.list
 
-    private enum Route { case list, add, edit(CustomGroup) }
+    private enum Route { case list, add, edit(CustomGroup), requests }
 
     private var canEditGroups: Bool {
         guard let id = state.selectedProfileID, state.selectedProfile != nil else { return false }
@@ -22,6 +22,8 @@ struct ProxiesTab: View {
 
     var body: some View {
         switch route {
+        case .requests:
+            RequestLogsPage { route = .list }
         case .add:
             GroupEditorPage { route = .list }
         case .edit(let group):
@@ -55,6 +57,9 @@ struct ProxiesTab: View {
                     .help("全部测速")
                     .accessibilityLabel("全部测速")
                     .disabled(!state.isRunning || state.visibleGroups.allSatisfy { state.pendingNewGroupNames.contains($0.name) } || !state.testingGroups.isEmpty)
+                Button { route = .requests } label: {
+                    Label("请求日志", systemImage: "list.bullet.rectangle")
+                }
                 Button { route = .add } label: {
                     Label("添加策略组", systemImage: "plus")
                 }
