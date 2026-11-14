@@ -219,7 +219,7 @@ struct StatusBadge: View {
     @Environment(AppState.self) private var state
 
     private var needsRestart: Bool {
-        state.coreState == .running && state.needsCoreRestart
+        state.coreState == .running && state.needsCoreRestart && !state.restarting
     }
 
     var body: some View {
@@ -247,6 +247,7 @@ struct StatusBadge: View {
     }
 
     private var text: String {
+        if state.restarting { return "重启中" }
         switch state.coreState {
         case .running:
             if state.needsCoreRestart { return "需重启生效" }
@@ -258,6 +259,7 @@ struct StatusBadge: View {
     }
 
     private var color: Color {
+        if state.restarting { return Theme.warningText }
         switch state.coreState {
         case .running:
             if state.needsCoreRestart { return Theme.warningText }

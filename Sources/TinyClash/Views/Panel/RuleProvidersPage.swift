@@ -37,11 +37,11 @@ struct RuleProvidersPage: View {
                 providerList.task(id: loadKey) { await load() }
             case .add:
                 if let id = state.selectedProfileID {
-                    RuleProviderEditorPage(profileID: id) { route = .list }
+                    RuleProviderEditorPage(profileID: id, back: showList)
                 }
             case .edit(let provider):
                 if let id = state.selectedProfileID {
-                    RuleProviderEditorPage(original: provider, profileID: id) { route = .list }
+                    RuleProviderEditorPage(original: provider, profileID: id, back: showList)
                 }
             }
         }
@@ -159,6 +159,16 @@ struct RuleProvidersPage: View {
         }
     }
 
+    /// 从编辑页返回：先同步读好最新定义再显示列表，避免先闪出旧列表、再插入新卡片造成跳动
+    private func showList() {
+        if state.selectedProfile != nil, let latest = try? state.ruleProviderDefinitions() {
+            definitions = latest
+            error = nil
+        }
+        if state.needsCoreRestart || !state.isRunning { providers = [:] }
+        route = .list
+    }
+
     private func update(_ name: String? = nil) {
         Task {
             await state.updateRuleProviders(named: name)
@@ -173,7 +183,6 @@ struct RuleProvidersPage: View {
         loading = true
         error = nil
         runtimeError = nil
-        providers = [:]
         defer { if requestID == id { loading = false } }
         guard state.selectedProfile != nil else {
             definitions = []
@@ -186,7 +195,11 @@ struct RuleProvidersPage: View {
             self.error = error.localizedDescription
             return
         }
-        guard state.isRunning, !state.needsCoreRestart, let api = state.api else { return }
+        // 待重启或停核时运行状态已过期，不显示；否则保留旧状态直到新数据到达，避免卡片高度来回变化
+        guard state.isRunning, !state.needsCoreRestart, let api = state.api else {
+            providers = [:]
+            return
+        }
         do {
             let loaded = try await api.ruleProviders()
             guard requestID == id, loadKey == key, state.api === api, !Task.isCancelled else { return }

@@ -78,6 +78,8 @@ final class AppState {
     private var editingProfiles: Set<UUID> = []
     private(set) var profileRevision = 0
     var needsCoreRestart = false
+    /// 正在应用修改或重启内核，顶部状态显示「重启中」
+    private(set) var restarting = false
     /// 请求打开「添加订阅」页（来自首页空状态或 clash:// 链接），值为预填的订阅链接
     var addSubscriptionRequest: String?
     var pendingNewGroupNames: Set<String> = []
@@ -355,6 +357,8 @@ final class AppState {
     }
 
     func restartCore() async {
+        restarting = true
+        defer { restarting = false }
         crashRestartTask?.cancel()
         await clearSystemProxy()
         await restoreDNS()
@@ -364,7 +368,10 @@ final class AppState {
 
     /// 让「需重启生效」的修改生效：优先热重载配置，保留连接与系统代理；失败时再整进程重启
     func applyPendingChanges() async {
+        guard !restarting else { return }
         guard isRunning, let api, let profile = selectedProfile else { return await restartCore() }
+        restarting = true
+        defer { restarting = false }
         let oldPort = runtime?.httpPort
         do {
             try await api.reloadConfig(path: try effectiveConfigPath(for: profile))
