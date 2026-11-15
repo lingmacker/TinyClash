@@ -353,12 +353,12 @@ struct PanelRow<Trailing: View>: View {
 extension View {
     /// 设置行内下拉列表：统一固定宽度并靠右对齐
     @ViewBuilder
-    func panelPicker() -> some View {
+    func panelPicker(width: CGFloat = 180) -> some View {
         let picker = labelsHidden()
         if #available(macOS 26, *) {
-            picker.buttonSizing(.flexible).frame(width: 180, alignment: .trailing)
+            picker.buttonSizing(.flexible).frame(width: width, alignment: .trailing)
         } else {
-            picker.frame(width: 180, alignment: .trailing)
+            picker.frame(width: width, alignment: .trailing)
         }
     }
 }

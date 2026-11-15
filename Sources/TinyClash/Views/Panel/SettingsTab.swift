@@ -67,7 +67,7 @@ struct SettingsTab: View {
                             Text("gVisor").tag("gvisor")
                             Text("System").tag("system")
                         }
-                        .panelPicker()
+                        .panelPicker(width: 120)
                     }
                     PanelRow(title: "接管系统 DNS", divider: state.tunSetDNS) {
                         Toggle("接管系统 DNS", isOn: $state.tunSetDNS).labelsHidden().toggleStyle(.switch).controlSize(.small)

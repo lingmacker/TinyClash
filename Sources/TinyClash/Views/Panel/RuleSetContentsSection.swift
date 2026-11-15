@@ -65,8 +65,8 @@ struct RuleSetContentsSection: View {
                 .padding(.horizontal, 4)
         } else {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
-                    RuleSetEntryRow(entry: entry, classical: classical)
+                ForEach(Array(entries.enumerated()), id: \.offset) { index, entry in
+                    RuleSetEntryRow(entry: entry, classical: classical, divider: index < entries.count - 1)
                         .contextMenu {
                             Button("复制规则") { Pasteboard.copy(entry) }
                         }
@@ -116,6 +116,7 @@ struct RuleSetContentsSection: View {
 private struct RuleSetEntryRow: View {
     var entry: String
     var classical: Bool
+    var divider = true
 
     var body: some View {
         HStack(spacing: 8) {
@@ -129,7 +130,7 @@ private struct RuleSetEntryRow: View {
         }
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .bottom) { Divider().opacity(0.5) }
+        .overlay(alignment: .bottom) { if divider { Divider().opacity(0.5) } }
         .contentShape(Rectangle())
     }
 
