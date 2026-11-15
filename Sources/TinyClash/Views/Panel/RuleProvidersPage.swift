@@ -247,7 +247,7 @@ struct RuleProviderCard: View {
                     .font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
             }
             HStack(spacing: 6) {
-                Tag(text: RuleProviderEditorPage.typeTitle(definition.type))
+                Tag(text: RuleProviderEditorPage.typeTitle(definition.type), tint: Theme.ruleProviderSourceTint(definition.type))
                 Text("\(definition.behavior) · \(definition.format)")
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: 2)

@@ -178,7 +178,8 @@ private struct ModePicker: View {
                         .padding(.vertical, 5)
                         .background(
                             RoundedRectangle(cornerRadius: Theme.Radius.tile - 2, style: .continuous)
-                                .fill(selected ? AnyShapeStyle(Theme.controlFill) : AnyShapeStyle(.clear))
+                                .fill(selected ? AnyShapeStyle(Theme.selectedSurface) : AnyShapeStyle(.clear))
+                                .shadow(color: .black.opacity(selected ? 0.08 : 0), radius: 1.5, y: 1)
                         )
                         .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.tile - 2, style: .continuous))
                         .hoverHighlight(cornerRadius: Theme.Radius.tile - 2)

@@ -185,14 +185,10 @@ struct MenuPanel: View {
                     Text("退出")
                         .font(.caption.weight(.medium))
                 }
-                .foregroundStyle(Theme.accentForeground)
+                .foregroundStyle(.white)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(Theme.controlFill, in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
-                        .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
-                )
+                .background(Theme.graphite, in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
                 .hoverHighlight(cornerRadius: Theme.Radius.chip)
                 .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
             }
@@ -214,10 +210,10 @@ struct MenuPanel: View {
                         Image(systemName: t.icon).font(.system(size: 13, weight: .medium))
                         Text(t.title).font(.caption2.weight(.medium))
                     }
-                    .foregroundStyle(tab == t ? AnyShapeStyle(Theme.accentForeground) : AnyShapeStyle(.primary))
+                    .foregroundStyle(tab == t ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 6)
-                    .background(tab == t ? AnyShapeStyle(Theme.controlFill) : AnyShapeStyle(Color.clear),
+                    .background(tab == t ? AnyShapeStyle(Theme.activeTileGradient) : AnyShapeStyle(Color.clear),
                                 in: RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
                     .contentShape(Rectangle())
                 }

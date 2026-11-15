@@ -138,7 +138,7 @@ private struct GroupCard: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Text(group.name).font(.callout.weight(.semibold)).lineLimit(1).truncationMode(.middle)
-                Tag(text: typeTitle(group.type))
+                Tag(text: typeTitle(group.type), tint: Theme.groupTypeTint(group.type))
                 Spacer(minLength: 4)
                 if state.testingGroups.contains(group.name) { ProgressView().controlSize(.mini) }
                 Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)

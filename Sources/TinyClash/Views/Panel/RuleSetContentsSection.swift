@@ -121,7 +121,8 @@ private struct RuleSetEntryRow: View {
     var body: some View {
         HStack(spacing: 8) {
             if classical, let comma = entry.firstIndex(of: ",") {
-                Tag(text: String(entry[..<comma]), cornerRadius: 4).fixedSize()
+                let type = String(entry[..<comma])
+                Tag(text: type, tint: Theme.ruleTypeTint(type.uppercased())).fixedSize()
                 value(String(entry[entry.index(after: comma)...]))
             } else {
                 value(entry)

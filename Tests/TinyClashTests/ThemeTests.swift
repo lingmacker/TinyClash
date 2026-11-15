@@ -27,7 +27,8 @@ final class ThemeTests: XCTestCase {
         for name in [NSAppearance.Name.aqua, .darkAqua] {
             let appearance = try XCTUnwrap(NSAppearance(named: name))
             for (foreground, background) in [(Theme.statusActive, Theme.statusActiveFill),
-                                             (Theme.accentForeground, Theme.controlFill)] {
+                                             (Theme.accentForeground, Theme.controlFill),
+                                             (Theme.accentForeground, Theme.selectedSurface)] {
                 var colors: [NSColor] = []
                 appearance.performAsCurrentDrawingAppearance {
                     colors = [foreground, background].compactMap { NSColor($0).usingColorSpace(.sRGB) }
@@ -44,7 +45,7 @@ final class ThemeTests: XCTestCase {
     func testCanvasAndPanelsAreOpaqueInBothAppearances() throws {
         for name in [NSAppearance.Name.aqua, .darkAqua] {
             let appearance = try XCTUnwrap(NSAppearance(named: name))
-            for color in [Theme.canvas, Theme.panel, Theme.controlFill] {
+            for color in [Theme.canvas, Theme.panel, Theme.controlFill, Theme.selectedSurface] {
                 var resolved: NSColor?
                 appearance.performAsCurrentDrawingAppearance {
                     resolved = NSColor(color).usingColorSpace(.sRGB)

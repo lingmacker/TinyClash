@@ -42,14 +42,33 @@ enum Theme {
     private static let accentColor = NSColor(srgbRed: 245 / 255, green: 123 / 255, blue: 63 / 255, alpha: 1)
     static let accent = Color(nsColor: accentColor)
     static let accentHighlight = Color(.sRGB, red: 1, green: 150 / 255, blue: 97 / 255, opacity: 1)
-    /// 选中态使用浅杏色底与深暖橙文字；深色外观保留柔和的暖色层次。
+    /// 深色外观的选中面：略带暖意的中性灰。低饱和的橙色铺在深色底上会发棕发闷，橙色只留给文字
+    private static let darkSelected = NSColor(srgbRed: 0.27, green: 0.258, blue: 0.25, alpha: 1)
+    /// 小面积选中态（选中节点行、主操作按钮）：浅色外观浅橙底 + 深橙文字（对比度约 5:1）
     static let controlFill = Color(nsColor: NSColor(name: nil) { a in
-        a.isDark ? NSColor(srgbRed: 73 / 255, green: 52 / 255, blue: 41 / 255, alpha: 1)
-                 : NSColor(srgbRed: 252 / 255, green: 233 / 255, blue: 221 / 255, alpha: 1)
+        a.isDark ? darkSelected : NSColor(srgbRed: 255 / 255, green: 240 / 255, blue: 232 / 255, alpha: 1)
+    })
+    /// 模式切换、路由终点：浅色外观用白色凸起面，深色外观用暖灰
+    static let selectedSurface = Color(nsColor: NSColor(name: nil) { a in
+        a.isDark ? darkSelected : .white
+    })
+    /// 石墨色次要实心按钮（退出），呼应应用图标的石墨底
+    static let graphite = Color(nsColor: NSColor(name: nil) { a in
+        a.isDark ? NSColor(srgbRed: 0.30, green: 0.305, blue: 0.32, alpha: 1)
+                 : NSColor(srgbRed: 0.18, green: 0.184, blue: 0.196, alpha: 1)
+    })
+    /// 已开启的开关卡片：比 OrangePulse 略深的实心橙渐变，保证白字对比度
+    static let activeTileGradient = LinearGradient(
+        colors: [Color(.sRGB, red: 212 / 255, green: 82 / 255, blue: 24 / 255, opacity: 1),
+                 Color(.sRGB, red: 194 / 255, green: 70 / 255, blue: 18 / 255, opacity: 1)],
+        startPoint: .top, endPoint: .bottom)
+    /// 开关卡片投影：仅浅色外观使用淡橙投影；深色背景上橙色投影会像发光，故不投影
+    static let activeTileShadow = Color(nsColor: NSColor(name: nil) { a in
+        a.isDark ? .clear : accentColor.withAlphaComponent(0.28)
     })
     static let accentForeground = Color(nsColor: NSColor(name: nil) { a in
         a.isDark ? NSColor(srgbRed: 255 / 255, green: 211 / 255, blue: 183 / 255, alpha: 1)
-                 : NSColor(srgbRed: 140 / 255, green: 67 / 255, blue: 28 / 255, alpha: 1)
+                 : NSColor(srgbRed: 176 / 255, green: 72 / 255, blue: 14 / 255, alpha: 1)
     })
 
     /// 接管状态使用不透明底色，保持稳定的小字对比度。
@@ -66,15 +85,25 @@ enum Theme {
         a.isDark ? NSColor(white: 0.75, alpha: 1) : NSColor(white: 0.36, alpha: 1)
     })
 
-    static let download = Color(nsColor: .systemBlue)
-    static let upload = Color(nsColor: .systemTeal)
-    static let active = Color(nsColor: .systemGreen)
-    static let warning = Color(nsColor: .systemOrange)
+    /// 语义色：深色外观用系统色；浅色外观的系统色做小字时对比度只有 2–3:1，改用加深版本（白底 ≥4.8:1）
+    private static func semantic(_ dark: NSColor, light r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> Color {
+        Color(nsColor: NSColor(name: nil) { a in
+            a.isDark ? dark : NSColor(srgbRed: r / 255, green: g / 255, blue: b / 255, alpha: 1)
+        })
+    }
+
+    static let download = semantic(.systemBlue, light: 0, 102, 214)
+    static let upload = semantic(.systemTeal, light: 0, 112, 130)
+    static let active = semantic(.systemGreen, light: 30, 128, 56)
+    static let warning = semantic(.systemOrange, light: 184, 84, 0)
+    private static let indigo = semantic(.systemIndigo, light: 80, 72, 200)
+    private static let purple = semantic(.systemPurple, light: 150, 60, 190)
+    private static let pink = semantic(.systemPink, light: 200, 30, 90)
     /// 警示小字：浅色外观下 systemOrange 在白底上对比度不足，改用深橙（≥4.5:1）
     static let warningText = Color(nsColor: NSColor(name: nil) { a in
         a.isDark ? .systemOrange : NSColor(srgbRed: 158 / 255, green: 84 / 255, blue: 0, alpha: 1)
     })
-    static let failure = Color(nsColor: .systemRed)
+    static let failure = semantic(.systemRed, light: 215, 0, 21)
 
     /// 策略名的颜色：直连绿、拒绝红、其余用可读的暖橙文字色
     static func policyTint(_ policy: String) -> Color {
@@ -83,6 +112,36 @@ enum Theme {
         case "REJECT", "REJECT-DROP": return failure
         case "未知策略": return .secondary
         default: return accentForeground
+        }
+    }
+
+    /// 规则类型按匹配对象分色：域名蓝、IP 靛、规则集紫、兜底 MATCH 粉，其余中性
+    static func ruleTypeTint(_ yamlType: String) -> Color {
+        if yamlType.hasPrefix("DOMAIN") || yamlType == "GEOSITE" { return download }
+        if yamlType.hasPrefix("IP") || yamlType.hasPrefix("SRC-IP") || yamlType == "GEOIP" { return indigo }
+        if yamlType == "RULE-SET" { return purple }
+        if yamlType == "MATCH" { return pink }
+        return .secondary
+    }
+
+    /// 策略组类型：手动用暖橙文字色（与策略名一致），自动类按策略分色
+    static func groupTypeTint(_ apiType: String) -> Color {
+        switch apiType {
+        case "Selector": return accentForeground
+        case "URLTest": return download
+        case "Fallback": return upload
+        case "LoadBalance": return indigo
+        default: return .secondary
+        }
+    }
+
+    /// 规则集来源：远程青、本地靛、内联粉
+    static func ruleProviderSourceTint(_ type: String) -> Color {
+        switch type {
+        case "http": return upload
+        case "file": return indigo
+        case "inline": return pink
+        default: return .secondary
         }
     }
 
@@ -209,7 +268,6 @@ struct LoadingHint: View {
 struct Tag: View {
     var text: String
     var tint: Color = .secondary
-    var cornerRadius: CGFloat? = nil
 
     var body: some View {
         Text(text)
@@ -217,13 +275,7 @@ struct Tag: View {
             .foregroundStyle(tint)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background {
-                if let cornerRadius {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).fill(tint.opacity(0.12))
-                } else {
-                    Capsule().fill(tint.opacity(0.12))
-                }
-            }
+            .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
     }
 }
 

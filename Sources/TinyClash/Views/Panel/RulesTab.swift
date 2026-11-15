@@ -205,7 +205,7 @@ private struct RuleCard: View {
     private var payloadText: String {
         // 内核把 GeoIP 国家代码转成小写，按惯例显示为大写
         if !rule.payload.isEmpty { return typeText == "GEOIP" ? rule.payload.uppercased() : rule.payload }
-        return typeText == "MATCH" ? "其他所有流量" : "—"
+        return typeText == "MATCH" ? "Default" : "—"
     }
 
     var body: some View {
@@ -224,7 +224,7 @@ private struct RuleCard: View {
                     .fixedSize()
             }
             HStack(spacing: 8) {
-                Tag(text: typeText, cornerRadius: 4)
+                Tag(text: typeText, tint: Theme.ruleTypeTint(typeText))
                     .fixedSize()
                 Spacer(minLength: 8)
                 Text(rule.proxy)

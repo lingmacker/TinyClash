@@ -117,28 +117,30 @@ struct ToggleTile: View {
         } label: {
             HStack(spacing: Theme.Space.s + 2) {
                 ZStack {
-                    Circle().fill(isOn ? Theme.accentForeground.opacity(0.08) : Theme.inset)
+                    Circle().fill(isOn ? Color.white.opacity(0.2) : Theme.inset)
                     if working {
-                        ProgressView().controlSize(.small).tint(isOn ? Theme.accentForeground : nil)
+                        ProgressView().controlSize(.small).tint(isOn ? .white : nil)
                     } else {
                         Image(systemName: icon).font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(isOn ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
                     }
                 }
                 .frame(width: 32, height: 32)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(.callout.weight(.semibold))
                     Text(isOn ? "已开启" : "已关闭").font(.caption)
-                        .foregroundStyle(isOn ? AnyShapeStyle(Theme.accentForeground) : AnyShapeStyle(.secondary))
+                        .foregroundStyle(isOn ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
                 }
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(isOn ? AnyShapeStyle(Theme.accentForeground) : AnyShapeStyle(.primary))
+            .foregroundStyle(isOn ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
             .padding(.horizontal, Theme.Space.m)
             .padding(.vertical, Theme.Space.s + 2)
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
-                    .fill(isOn ? AnyShapeStyle(Theme.controlFill) : AnyShapeStyle(Theme.inset))
+                    .fill(isOn ? AnyShapeStyle(Theme.activeTileGradient) : AnyShapeStyle(Theme.inset))
+                    .shadow(color: isOn ? Theme.activeTileShadow : .clear, radius: 5, y: 2)
             )
             .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
             .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: isOn)
@@ -201,13 +203,13 @@ struct RouteRibbon: View {
     private func segment(_ text: String, systemImage: String?, emphasis: Bool) -> some View {
         HStack(spacing: 4) {
             if let systemImage { Image(systemName: systemImage).font(.system(size: compact ? 10 : 11, weight: .semibold)) }
-            Text(text).font(emphasis ? .callout.weight(.semibold) : font)
+            Text(text).font(emphasis ? font.weight(.semibold) : font)
                 .layoutPriority(emphasis ? 1 : 0)
         }
         .foregroundStyle(emphasis ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
         .padding(.horizontal, compact ? 6 : 8)
         .padding(.vertical, compact ? 3 : 4)
-        .background(emphasis ? AnyShapeStyle(Color.accentColor.opacity(0.14)) : AnyShapeStyle(Theme.inset),
+        .background(emphasis ? AnyShapeStyle(Theme.selectedSurface) : AnyShapeStyle(Theme.inset),
                     in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
         .truncationMode(.middle)
         .layoutPriority(emphasis ? 1 : 0)
@@ -282,7 +284,7 @@ struct StatusBadge: View {
     var body: some View {
         if needsRestart {
             Button { Task { await state.applyPendingChanges() } } label: {
-                badge.hoverHighlight(cornerRadius: 999)
+                badge.hoverHighlight(cornerRadius: Theme.Radius.chip)
             }
             .buttonStyle(PressableStyle())
             .help("配置已修改，点击重新加载配置以应用更改；重新加载失败时会重启内核")
@@ -301,7 +303,8 @@ struct StatusBadge: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
         .background(state.isProxying && !needsRestart && !state.restarting && !state.quitting
-                    ? Theme.statusActiveFill : color.opacity(0.12), in: Capsule())
+                    ? Theme.statusActiveFill : color.opacity(0.12),
+                    in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
     }
 
     private var text: String {

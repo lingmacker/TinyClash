@@ -116,7 +116,7 @@ private struct RequestLogCard: View {
                     .font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
             }
             HStack(spacing: 6) {
-                Tag(text: entry.connection.metadata.network.uppercased(), cornerRadius: 4)
+                Tag(text: entry.connection.metadata.network.uppercased())
                 Text(entry.policy).foregroundStyle(Theme.policyTint(entry.policy))
                     .font(.caption.weight(.medium)).lineLimit(1).truncationMode(.middle)
                 if let node = entry.node, node != entry.policy {
