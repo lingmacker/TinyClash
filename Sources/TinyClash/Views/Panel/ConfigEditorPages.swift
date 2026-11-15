@@ -192,7 +192,9 @@ struct RuleEditorPage: View {
                     if let error {
                         Text(error).font(.caption).foregroundStyle(Theme.failure).textSelection(.enabled).padding(.horizontal, 4)
                     }
-                    ConfigWriteNotice(placement: editing == nil ? "规则插入 rules 最前面，优先匹配。" : "保存后原位替换该规则，匹配顺序不变。")
+                    if type.name == "RULE-SET", ruleProviderNames.contains(payload) {
+                        RuleSetContentsSection(name: payload)
+                    }
                 }
                 .padding(14)
             }

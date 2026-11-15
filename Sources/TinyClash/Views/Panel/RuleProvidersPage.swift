@@ -407,9 +407,6 @@ struct RuleProviderEditorPage: View {
                         Text(message).font(.caption).foregroundStyle(error != nil ? Theme.failure : .secondary)
                             .textSelection(.enabled).padding(.horizontal, 4)
                     }
-                    ConfigWriteNotice(placement: original == nil
-                                      ? "规则集和对应的 RULE-SET 规则一并保存；规则插入 rules 最前面，优先按所选策略匹配。"
-                                      : "规则集名称保持不变，未在表单中显示的字段原样保留。")
                 }
                 .padding(14)
             }

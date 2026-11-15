@@ -68,7 +68,7 @@ struct RulesTab: View {
                     .font(.caption).foregroundStyle(.secondary)
                     .help(state.needsCoreRestart
                           ? "配置已修改，当前按配置文件规则顺序显示（重启内核后生效）"
-                          : "按内核匹配顺序显示；RuleSet 显示集合引用，不展开集合内的条目")
+                          : "按内核匹配顺序显示；点击 RuleSet 规则可在编辑页下方查看规则集包含的条目")
                 Spacer(minLength: 4)
                 Button { Task { await loadRules() } } label: {
                     Label("刷新", systemImage: "arrow.clockwise")
