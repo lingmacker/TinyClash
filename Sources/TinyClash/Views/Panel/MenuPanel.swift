@@ -71,6 +71,7 @@ struct MenuPanel: View {
     }()
     /// 访问过的标签页保持挂载，切换标签时不丢失正在编辑的表单和滚动位置
     @State private var visited: Set<PanelTab> = []
+    @State private var hoveringQuit = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -126,6 +127,7 @@ struct MenuPanel: View {
         .tint(Theme.accent)
         // 窗口打开时 AppKit 会把焦点给第一个输入框并全选文字，这里清掉，避免误输入
         .onAppear {
+            state.applyAppearance()
             clearFocus()
             visited.insert(tab)
             state.activeTab = tab
@@ -134,6 +136,7 @@ struct MenuPanel: View {
         }
         .onDisappear {
             state.isPanelOpen = false
+            hoveringQuit = false
         }
         .onChange(of: tab) {
             visited.insert(tab)
@@ -201,11 +204,11 @@ struct MenuPanel: View {
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: Theme.Space.s)
-            // 退出是低频操作且有 ⌘Q，只用低调的图标按钮，不和状态抢视线
+            // 退出是低频操作且有 ⌘Q，只用低调的图标按钮，不和状态抢视线；悬停时变红提示破坏性操作
             Button { NSApp.terminate(nil) } label: {
                 Image(systemName: "power")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(hoveringQuit && !state.quitting ? AnyShapeStyle(Theme.failure) : AnyShapeStyle(.secondary))
                     .frame(width: 26, height: 26)
                     .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
                     .hoverHighlight(cornerRadius: Theme.Radius.chip)
@@ -213,6 +216,8 @@ struct MenuPanel: View {
             .buttonStyle(PressableStyle())
             .disabled(state.quitting)
             .opacity(state.quitting ? 0.5 : 1)
+            .onHover { hoveringQuit = $0 }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hoveringQuit)
             .keyboardShortcut("q")
             .help("退出 TinyClash（⌘Q）")
             .accessibilityLabel("退出 TinyClash")

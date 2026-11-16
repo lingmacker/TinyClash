@@ -158,3 +158,133 @@ actor AsyncLimiter {
         }
     }
 }
+
+struct ReleaseInfo: Equatable {
+    var version: String
+    var tagName: String
+    var htmlURL: URL
+    var notes: String?
+}
+
+enum UpdateError: LocalizedError {
+    case badStatus(Int)
+    case invalidResponse
+
+    var errorDescription: String? {
+        switch self {
+        case .badStatus(let code): return "请求失败（HTTP \(code)）"
+        case .invalidResponse: return "无法解析版本信息"
+        }
+    }
+}
+
+enum UpdateChecker {
+    static let latestAPIURL = URL(string: "https://api.github.com/repos/lingmacker/TinyClash/releases/latest")!
+    static let latestPageURL = URL(string: "https://github.com/lingmacker/TinyClash/releases/latest")!
+
+    static func normalizedVersion(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("v") || trimmed.hasPrefix("V") {
+            return String(trimmed.dropFirst())
+        }
+        return trimmed
+    }
+
+    /// 比较远端版本是否比当前版本更新（支持 x.y.z 与预发布后缀）
+    static func isNewer(remote: String, than current: String) -> Bool {
+        let rNorm = normalizedVersion(remote)
+        let cNorm = normalizedVersion(current)
+        guard !rNorm.isEmpty, !cNorm.isEmpty, rNorm != cNorm else { return false }
+
+        let rParts = rNorm.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+        let cParts = cNorm.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+        let rNums = rParts[0].split(separator: ".").map { Int($0) ?? 0 }
+        let cNums = cParts[0].split(separator: ".").map { Int($0) ?? 0 }
+        let count = max(rNums.count, cNums.count)
+        for i in 0..<count {
+            let rv = i < rNums.count ? rNums[i] : 0
+            let cv = i < cNums.count ? cNums[i] : 0
+            if rv != cv { return rv > cv }
+        }
+        let rPre = rParts.count > 1 ? String(rParts[1]) : ""
+        let cPre = cParts.count > 1 ? String(cParts[1]) : ""
+        if rPre.isEmpty && !cPre.isEmpty { return true }
+        if !rPre.isEmpty && cPre.isEmpty { return false }
+        return rPre.localizedStandardCompare(cPre) == .orderedDescending
+    }
+
+    static func fetchLatestRelease(proxyPort: Int?, preferProxy: Bool) async throws -> ReleaseInfo {
+        let ports: [Int?] = if let port = proxyPort, port > 0 {
+            preferProxy ? [port, nil] : [nil, port]
+        } else {
+            [nil]
+        }
+        var lastError: Error = UpdateError.invalidResponse
+        for port in ports {
+            do {
+                return try await fetchLatestRelease(viaProxyPort: port)
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError
+    }
+
+    private struct GitHubReleasePayload: Decodable {
+        var tag_name: String
+        var html_url: String
+        var body: String?
+    }
+
+    private static func fetchLatestRelease(viaProxyPort port: Int?) async throws -> ReleaseInfo {
+        let cfg = URLSessionConfiguration.ephemeral
+        if let port, port > 0 {
+            cfg.connectionProxyDictionary = [
+                kCFNetworkProxiesHTTPEnable: 1, kCFNetworkProxiesHTTPProxy: "127.0.0.1", kCFNetworkProxiesHTTPPort: port,
+                kCFNetworkProxiesHTTPSEnable: 1, kCFNetworkProxiesHTTPSProxy: "127.0.0.1", kCFNetworkProxiesHTTPSPort: port,
+            ] as [AnyHashable: Any]
+        } else {
+            cfg.connectionProxyDictionary = [:]
+        }
+        cfg.timeoutIntervalForRequest = 12
+        cfg.timeoutIntervalForResource = 20
+        let session = URLSession(configuration: cfg)
+        defer { session.finishTasksAndInvalidate() }
+
+        var req = URLRequest(url: latestAPIURL)
+        req.setValue("TinyClash", forHTTPHeaderField: "User-Agent")
+        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        let (data, resp) = try await session.data(for: req)
+        if let code = (resp as? HTTPURLResponse)?.statusCode {
+            if code == 403 || code == 429 {
+                return try await fetchFromRedirect(session: session)
+            }
+            guard (200..<300).contains(code) else { throw UpdateError.badStatus(code) }
+        }
+        guard let payload = try? JSONDecoder().decode(GitHubReleasePayload.self, from: data),
+              let htmlURL = URL(string: payload.html_url) else {
+            throw UpdateError.invalidResponse
+        }
+        let version = normalizedVersion(payload.tag_name)
+        guard !version.isEmpty else { throw UpdateError.invalidResponse }
+        return ReleaseInfo(version: version, tagName: payload.tag_name, htmlURL: htmlURL, notes: payload.body)
+    }
+
+    private static func fetchFromRedirect(session: URLSession) async throws -> ReleaseInfo {
+        var req = URLRequest(url: latestPageURL)
+        req.httpMethod = "HEAD"
+        req.setValue("TinyClash", forHTTPHeaderField: "User-Agent")
+        let (_, resp) = try await session.data(for: req)
+        if let code = (resp as? HTTPURLResponse)?.statusCode, !(200..<400).contains(code) {
+            throw UpdateError.badStatus(code)
+        }
+        guard let finalURL = resp.url,
+              let range = finalURL.path.range(of: "/releases/tag/") else {
+            throw UpdateError.invalidResponse
+        }
+        let tag = String(finalURL.path[range.upperBound...]).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let version = normalizedVersion(tag)
+        guard !version.isEmpty else { throw UpdateError.invalidResponse }
+        return ReleaseInfo(version: version, tagName: tag, htmlURL: finalURL, notes: nil)
+    }
+}

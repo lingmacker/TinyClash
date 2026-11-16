@@ -36,6 +36,27 @@ enum ProxyMode: String, CaseIterable, Identifiable {
     }
 }
 
+enum AppearanceMode: String, CaseIterable, Identifiable {
+    case system, dark, light
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .system: return "系统"
+        case .dark: return "黑暗"
+        case .light: return "明亮"
+        }
+    }
+
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .system: return nil
+        case .dark: return NSAppearance(named: .darkAqua)
+        case .light: return NSAppearance(named: .aqua)
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class AppState {
@@ -156,6 +177,23 @@ final class AppState {
             updateGlobalHotKeys()
         }
     }
+    var appearanceMode: AppearanceMode {
+        didSet {
+            defaults.set(appearanceMode.rawValue, forKey: "appearanceMode")
+            applyAppearance()
+        }
+    }
+    /// 最近一次检查到的新版本（高于当前版本时保留，方便在设置页直接查看或下载）
+    private(set) var availableUpdate: ReleaseInfo?
+
+    static let fallbackAppVersion = "1.0.17"
+    var appVersion: String {
+        if let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+            let normalized = UpdateChecker.normalizedVersion(v)
+            if !normalized.isEmpty { return normalized }
+        }
+        return Self.fallbackAppVersion
+    }
 
     static func clampedPort(_ port: Int) -> Int {
         min(max(port, 1), 65535)
@@ -230,6 +268,7 @@ final class AppState {
         closeConnectionsOnSwitch = d.object(forKey: "closeConnOnSwitch") as? Bool ?? true
         subscriptionViaProxy = d.bool(forKey: "subViaProxy")
         globalHotKeysEnabled = d.bool(forKey: "globalHotKeys")
+        appearanceMode = AppearanceMode(rawValue: d.string(forKey: "appearanceMode") ?? "") ?? .system
 
         core.onUnexpectedExit = { [weak self] status, tail in
             Task { @MainActor in await self?.handleCoreCrash(status: status, log: tail) }
@@ -239,6 +278,7 @@ final class AppState {
     // MARK: - Lifecycle
 
     func bootstrap() async {
+        applyAppearance()
         AppPaths.ensure()
         // 复制内核、读取版本都会启动子进程，放到后台避免启动时卡住菜单栏
         let core = core
@@ -1485,8 +1525,46 @@ final class AppState {
     // MARK: - Misc
 
     func confirm(_ title: String, message: String, confirmTitle: String = "删除",
-                 action: @escaping @MainActor () -> Void) {
-        confirmation = PanelConfirmation(title: title, message: message, confirmTitle: confirmTitle, action: action)
+                 destructive: Bool = true, action: @escaping @MainActor () -> Void) {
+        confirmation = PanelConfirmation(title: title, message: message, confirmTitle: confirmTitle,
+                                         destructive: destructive, action: action)
+    }
+
+    func applyAppearance() {
+        let target = appearanceMode.nsAppearance
+        NSApp?.appearance = target
+        for window in NSApp?.windows ?? [] where !window.className.contains("StatusBar") {
+            if window.appearance != target { window.appearance = target }
+        }
+    }
+
+    func checkForUpdates() async {
+        errorMessage = nil
+        let port = isRunning ? runtime?.httpPort : nil
+        let preferProxy = isProxying || subscriptionViaProxy
+        do {
+            let release = try await UpdateChecker.fetchLatestRelease(proxyPort: port, preferProxy: preferProxy)
+            if UpdateChecker.isNewer(remote: release.version, than: appVersion) {
+                availableUpdate = release
+                let summary = release.notes?
+                    .split(whereSeparator: \.isNewline)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+                    .prefix(4)
+                    .joined(separator: "\n") ?? ""
+                let msg = summary.isEmpty
+                    ? "当前版本 v\(appVersion)，最新版本 v\(release.version)。"
+                    : "当前版本 v\(appVersion) → v\(release.version)\n\n\(summary)"
+                confirm("发现新版本 v\(release.version)", message: msg, confirmTitle: "前往下载", destructive: false) {
+                    NSWorkspace.shared.open(release.htmlURL)
+                }
+            } else {
+                availableUpdate = nil
+                showToast("当前已是最新版本（v\(appVersion)）")
+            }
+        } catch {
+            errorMessage = "检查更新失败：\(error.localizedDescription)"
+        }
     }
 
     /// 删除策略组前确认；删除会直接改写当前配置的 YAML

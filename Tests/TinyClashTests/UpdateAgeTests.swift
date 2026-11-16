@@ -38,4 +38,24 @@ final class UpdateAgeTests: XCTestCase {
     func testFutureTimestampFromClockSkewShowsJustNow() {
         XCTAssertEqual(Format.updateAge(now.addingTimeInterval(120), now: now), "刚刚")
     }
+
+    func testVersionComparisonAndNormalization() {
+        XCTAssertEqual(UpdateChecker.normalizedVersion("v1.0.16"), "1.0.16")
+        XCTAssertEqual(UpdateChecker.normalizedVersion(" 1.2.0 "), "1.2.0")
+        XCTAssertTrue(UpdateChecker.isNewer(remote: "v1.0.17", than: "1.0.16"))
+        XCTAssertTrue(UpdateChecker.isNewer(remote: "1.1.0", than: "1.0.16"))
+        XCTAssertTrue(UpdateChecker.isNewer(remote: "2.0.0", than: "1.9.9"))
+        XCTAssertTrue(UpdateChecker.isNewer(remote: "1.0.16", than: "1.0.16-beta.1"))
+        XCTAssertFalse(UpdateChecker.isNewer(remote: "v1.0.16", than: "1.0.16"))
+        XCTAssertFalse(UpdateChecker.isNewer(remote: "1.0.15", than: "1.0.16"))
+        XCTAssertFalse(UpdateChecker.isNewer(remote: "1.0.16-beta.1", than: "1.0.16"))
+    }
+
+    func testAppearanceModesFollowExpectedOrderAndTitles() {
+        XCTAssertEqual(AppearanceMode.allCases, [.system, .dark, .light])
+        XCTAssertEqual(AppearanceMode.allCases.map(\.title), ["系统", "黑暗", "明亮"])
+        XCTAssertNil(AppearanceMode.system.nsAppearance)
+        XCTAssertEqual(AppearanceMode.dark.nsAppearance?.name, .darkAqua)
+        XCTAssertEqual(AppearanceMode.light.nsAppearance?.name, .aqua)
+    }
 }

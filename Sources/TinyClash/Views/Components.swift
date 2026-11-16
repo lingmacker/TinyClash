@@ -222,6 +222,7 @@ struct PanelConfirmation: Identifiable {
     var title: String
     var message: String
     var confirmTitle: String
+    var destructive: Bool = true
     var action: @MainActor () -> Void
 }
 
@@ -247,12 +248,14 @@ struct ConfirmationOverlay: View {
                     Button { state.confirmation = nil } label: { Text("取消").frame(maxWidth: .infinity) }
                         .buttonStyle(.bordered)
                         .keyboardShortcut(.cancelAction)
-                    Button(role: .destructive) {
+                    Button(role: confirmation.destructive ? .destructive : nil) {
                         state.confirmation = nil
                         confirmation.action()
                     } label: {
                         // 红色文字不依赖窗口是否激活；系统的醒目样式在非活动窗口里会变灰
-                        Text(confirmation.confirmTitle).fontWeight(.semibold).foregroundStyle(Theme.failure)
+                        Text(confirmation.confirmTitle)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(confirmation.destructive ? Theme.failure : Theme.accentForeground)
                             .frame(maxWidth: .infinity)
                     }
                         .buttonStyle(.bordered)

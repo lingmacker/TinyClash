@@ -9,7 +9,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/dependencies.conf"
 APP="$ROOT/build/TinyClash.app"
 VENDOR="$ROOT/vendor"
-VERSION="${VERSION:-1.0.0}"
+DEFAULT_VERSION="$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || true)"
+VERSION="${VERSION:-${DEFAULT_VERSION:-1.0.17}}"
 ARCH="${TARGET_ARCH:-$(uname -m)}"
 case "$ARCH" in
   arm64) CORE_ARCH="darwin-arm64" ;;

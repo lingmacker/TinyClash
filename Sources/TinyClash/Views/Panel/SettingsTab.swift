@@ -28,6 +28,17 @@ struct SettingsTab: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: Theme.Space.l) {
                 PanelSection(title: "通用") {
+                    PanelRow(title: "颜色模式") {
+                        Picker("颜色模式", selection: $state.appearanceMode) {
+                            ForEach(AppearanceMode.allCases) { mode in
+                                Text(mode.title).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .controlSize(.small)
+                        .fixedSize()
+                    }
                     PanelRow(title: "登录时启动") {
                         if state.launchAtLoginNeedsApproval {
                             Button("去允许…") { SMAppService.openSystemSettingsLoginItems() }
@@ -53,8 +64,15 @@ struct SettingsTab: View {
                             .labelsHidden().toggleStyle(.switch).controlSize(.small)
                             .disabled(!state.isRunning)
                     }
-                    PanelRow(title: "通过代理更新订阅", divider: false) {
+                    PanelRow(title: "通过代理更新订阅") {
                         Toggle("通过代理更新订阅", isOn: $state.subscriptionViaProxy).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                    }
+                    PanelRow(title: "版本更新", divider: false) {
+                        Text("v\(state.appVersion)")
+                            .font(Theme.numeral(12, weight: .regular)).foregroundStyle(.secondary)
+                        dataAction("检查更新", id: "update", disabled: false) {
+                            await state.checkForUpdates()
+                        }
                     }
                 }
 
@@ -86,6 +104,7 @@ struct SettingsTab: View {
                         PanelRow(title: "DNS 服务器", divider: false) {
                             TextField("223.5.5.5", text: $state.tunDNSServer)
                                 .panelField()
+                                .frame(width: 120)
                                 .focused($dnsFieldFocused)
                                 // 输入完成（回车或失焦）后再应用，避免每个字符都改一次系统 DNS
                                 .onSubmit { applyDNSIfNeeded() }
