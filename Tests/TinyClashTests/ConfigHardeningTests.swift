@@ -130,4 +130,25 @@ final class ConfigHardeningTests: XCTestCase {
             guard case ConfigOverlay.OverlayError.flowStyle = error else { return XCTFail("\(error)") }
         }
     }
+
+    func testAddRuleBeforeMatchKeepsMatchCommentAndFallback() throws {
+        let yaml = "rules:\n  - DOMAIN,a.com,DIRECT\n  # fallback\n  - MATCH,Proxy\nother: 1\n"
+        let result = try ConfigOverlay.addRule("DOMAIN,b.com,DIRECT", beforeMatch: true, to: yaml)
+        XCTAssertEqual(result, "rules:\n  - DOMAIN,a.com,DIRECT\n  - DOMAIN,b.com,DIRECT\n  # fallback\n  - MATCH,Proxy\nother: 1\n")
+    }
+
+    func testAddRuleBeforeMatchAppendsWithoutFallback() throws {
+        let yaml = "rules:\n  - DOMAIN,a.com,DIRECT\n\nother: 1\n"
+        let result = try ConfigOverlay.addRule("DOMAIN,b.com,DIRECT", beforeMatch: true, to: yaml)
+        XCTAssertEqual(result, "rules:\n  - DOMAIN,a.com,DIRECT\n  - DOMAIN,b.com,DIRECT\n\nother: 1\n")
+    }
+
+    func testAddRuleBeforeMatchInFlowList() throws {
+        let flow = "rules: ['DOMAIN,a.com,DIRECT', 'MATCH,DIRECT']\n"
+        let result = try ConfigOverlay.addRule("DOMAIN,b.com,DIRECT", beforeMatch: true, to: flow)
+        let a = try XCTUnwrap(result.range(of: "a.com")).lowerBound
+        let b = try XCTUnwrap(result.range(of: "b.com")).lowerBound
+        let m = try XCTUnwrap(result.range(of: "MATCH")).lowerBound
+        XCTAssertTrue(a < b && b < m, result)
+    }
 }

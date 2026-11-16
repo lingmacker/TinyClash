@@ -153,7 +153,7 @@ struct RuleProvidersPage: View {
                 .disabled(!canUpdate || runtime?.isRemoteRuleProvider != true)
             if !definition.url.isEmpty {
                 Button("复制链接") {
-                    Pasteboard.copy(definition.url)
+                    state.copy(definition.url, message: "已复制链接")
                 }
             }
             Divider()
@@ -366,7 +366,7 @@ struct RuleProviderEditorPage: View {
                         PanelRow(title: "名称") {
                             if original == nil {
                                 TextField("例如 reject", text: $provider.name)
-                                    .textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                                    .panelField()
                                     .accessibilityLabel("规则集名称")
                             } else {
                                 Text(provider.name).foregroundStyle(.secondary)
@@ -435,7 +435,7 @@ struct RuleProviderEditorPage: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("订阅链接").font(.callout)
                         TextField("https://example.com/rules.yaml", text: $provider.url)
-                            .textFieldStyle(.plain).font(.caption)
+                            .font(.caption).panelField(alignment: .leading)
                             .accessibilityLabel("规则集订阅链接")
                     }
                     .padding(12)
@@ -444,14 +444,13 @@ struct RuleProviderEditorPage: View {
                 if provider.type == "file" {
                     PanelRow(title: "文件路径", divider: false) {
                         TextField("rules/local.yaml", text: $provider.path)
-                            .textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                            .panelField()
                             .accessibilityLabel("规则集文件路径")
                     }
                 }
                 if provider.type == "http" {
                     PanelRow(title: "更新间隔（秒）", divider: false) {
-                        TextField("86400", text: $interval).textFieldStyle(.plain)
-                            .multilineTextAlignment(.trailing).frame(width: 90)
+                        TextField("86400", text: $interval).panelField().frame(width: 90)
                             .accessibilityLabel("规则集更新间隔（秒）")
                     }
                 }

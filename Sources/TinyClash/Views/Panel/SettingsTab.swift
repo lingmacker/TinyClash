@@ -4,6 +4,8 @@ import SwiftUI
 struct SettingsTab: View {
     @Environment(AppState.self) private var state
     @State private var editingBypass = false
+    /// 正在进行的数据操作，进度显示在对应按钮的位置
+    @State private var runningAction: String?
 
     var body: some View {
         if editingBypass {
@@ -48,7 +50,7 @@ struct SettingsTab: View {
                     }
                 }
 
-                PanelSection(title: "TUN", footer: "TUN 需以 root 运行内核：授权会把内核设为 root 所有并加 setuid 位。其余参数沿用配置文件的 tun 字段。TUN 开启时修改协议栈或 DNS 会立即重新应用。") {
+                PanelSection(title: "TUN", footer: "TUN 需以 root 运行内核：授权会把内核设为 root 所有并加 setuid 位。其余参数沿用配置文件的 tun 字段。TUN 开启时修改协议栈或 DNS 会立即重新应用；DNS 服务器输入后按回车应用。") {
                     PanelRow(title: "内核授权") {
                         if state.isPrivileged {
                             Text("已授权").font(.callout).foregroundStyle(Theme.active)
@@ -75,7 +77,7 @@ struct SettingsTab: View {
                     if state.tunSetDNS {
                         PanelRow(title: "DNS 服务器", divider: false) {
                             TextField("223.5.5.5", text: $state.tunDNSServer)
-                                .textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                                .panelField()
                                 // 输入完成（回车）后再应用，避免每个字符都改一次系统 DNS
                                 .onSubmit { Task { await state.tunSettingsChanged() } }
                         }
@@ -89,14 +91,14 @@ struct SettingsTab: View {
                     NavRow(title: "绕过代理的地址", icon: "arrow.uturn.right", value: "\(state.bypassList.count) 项") { editingBypass = true }
                     PanelRow(title: "备用混合端口", icon: "number") {
                         TextField("7890", value: $state.fallbackPort, format: .number.grouping(.never))
-                            .textFieldStyle(.plain).multilineTextAlignment(.trailing).frame(width: 70)
+                            .panelField().frame(width: 70)
                     }
                     PanelRow(title: "测速地址", icon: "bolt") {
-                        TextField("URL", text: $state.delayTestURL).textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                        TextField("URL", text: $state.delayTestURL).panelField()
                     }
                     PanelRow(title: "测速超时（毫秒）", icon: "timer", divider: false) {
                         TextField("5000", value: $state.delayTimeout, format: .number.grouping(.never))
-                            .textFieldStyle(.plain).multilineTextAlignment(.trailing).frame(width: 70)
+                            .panelField().frame(width: 70)
                     }
                 }
 
@@ -119,30 +121,46 @@ struct SettingsTab: View {
                             .help("内核操作").accessibilityLabel("内核操作")
                     }
                     PanelRow(title: "远程规则集与代理集合", icon: "shippingbox") {
-                        Button("全部更新") { Task { await state.updateAllProviders() } }.controlSize(.small)
-                            .disabled(!state.isRunning || state.busy)
+                        dataAction("全部更新", id: "providers", disabled: !state.isRunning || state.busy) {
+                            await state.updateAllProviders()
+                        }
                     }
                     PanelRow(title: "Geo 数据库", icon: "map") {
-                        Button("更新") { Task { await state.updateGeo() } }.controlSize(.small)
-                            .disabled(!state.isRunning || state.busy)
+                        dataAction("更新", id: "geo", disabled: !state.isRunning || state.busy) {
+                            await state.updateGeo()
+                        }
                     }
                     PanelRow(title: "DNS 缓存", icon: "arrow.counterclockwise", divider: false) {
-                        Button("清空") {
-                            Task {
-                                try? await state.api?.flushFakeIP()
-                                try? await state.api?.flushDNS()
-                            }
+                        dataAction("清空", id: "dns", disabled: !state.isRunning) {
+                            await state.flushDNSCache()
                         }
-                        .controlSize(.small)
-                        .disabled(!state.isRunning)
                     }
-                }
-                .overlay(alignment: .topTrailing) {
-                    if state.busy { ProgressView().controlSize(.mini).padding(.top, 2) }
                 }
             }
             .padding(14)
         }
+    }
+}
+
+extension SettingsTab {
+    /// 数据操作按钮：执行中在原位置显示进度圈，按钮宽度不变；完成后由面板底部提示反馈结果
+    private func dataAction(_ title: String, id: String, disabled: Bool,
+                            perform: @escaping () async -> Void) -> some View {
+        let running = runningAction == id
+        return Button {
+            runningAction = id
+            Task {
+                await perform()
+                if runningAction == id { runningAction = nil }
+            }
+        } label: {
+            Text(title)
+                .opacity(running ? 0 : 1)
+                .overlay { if running { ProgressView().controlSize(.mini) } }
+        }
+        .controlSize(.small)
+        .disabled(disabled || runningAction != nil)
+        .accessibilityLabel(running ? "\(title)，进行中" : title)
     }
 }
 

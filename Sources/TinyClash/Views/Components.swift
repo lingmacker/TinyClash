@@ -181,7 +181,8 @@ struct RouteRibbon: View {
             Spacer(minLength: 0)
         }
         .lineLimit(1)
-        .help("当前出站路径：从主策略组（\(state.primaryGroup?.name ?? "—")）解析到最终节点")
+        // 紧凑版在首页包在可点击按钮里，由按钮提供提示
+        .help(compact ? "" : "当前出站路径：从主策略组（\(state.primaryGroup?.name ?? "—")）解析到最终节点")
     }
 
     private var font: Font { compact ? .caption : .callout }
@@ -295,8 +296,13 @@ struct StatusBadge: View {
     }
 
     private var badge: some View {
-        HStack(spacing: 6) {
-            Circle().fill(color).frame(width: 7, height: 7)
+        HStack(spacing: needsRestart ? 4 : 6) {
+            // 需重启是待办事项，用图标而不是状态圆点，避免与品牌橙混成一片
+            if needsRestart {
+                Image(systemName: "arrow.clockwise.circle.fill").font(.system(size: 10, weight: .semibold))
+            } else {
+                Circle().fill(color).frame(width: 7, height: 7)
+            }
             Text(text).font(.caption.weight(.medium))
         }
         .foregroundStyle(color)

@@ -86,6 +86,11 @@ final class AppState {
     var confirmation: PanelConfirmation?
     /// 请求打开「添加订阅」页（来自首页空状态或 clash:// 链接），值为预填的订阅链接
     var addSubscriptionRequest: String?
+    /// 请求在「策略」页打开某个策略组（来自首页出站路径），值为分组名
+    var openGroupRequest: String?
+    /// 面板底部的短暂成功提示（复制、清空缓存、更新完成等），约 2 秒后自动消失
+    private(set) var toast: String?
+    private var toastToken = UUID()
     var pendingNewGroupNames: Set<String> = []
     var isEditingSelectedProfile: Bool { selectedProfileID.map { editingProfiles.contains($0) } ?? false }
     var canEditSelectedProfile: Bool {
@@ -1085,8 +1090,8 @@ final class AppState {
     }
 
     /// Add or delete directly on the selected official YAML, never via an overlay.
-    func addRule(_ rule: String) async throws {
-        try await applyProfileEdit(.addRule(rule))
+    func addRule(_ rule: String, beforeMatch: Bool = false) async throws {
+        try await applyProfileEdit(.addRule(rule, beforeMatch: beforeMatch))
     }
 
     func addGroup(_ group: CustomGroup) async throws {
@@ -1327,7 +1332,10 @@ final class AppState {
         guard let api else { return }
         busy = true
         defer { busy = false }
-        do { try await api.updateGeo() } catch { errorMessage = "更新 Geo 数据库失败：\(error.localizedDescription)" }
+        do {
+            try await api.updateGeo()
+            showToast("Geo 数据库已更新")
+        } catch { errorMessage = "更新 Geo 数据库失败：\(error.localizedDescription)" }
     }
 
     /// 更新所有远程（HTTP）代理集合与规则集合；有未生效的配置修改时内核里的集合已过期，不更新
@@ -1347,7 +1355,7 @@ final class AppState {
             do { try await api.updateRuleProvider(p.name) } catch { failed.append(p.name) }
         }
         await refreshProxies()
-        if !failed.isEmpty { errorMessage = "以下资源更新失败：\(failed.joined(separator: "、"))" }
+        if failed.isEmpty { showToast("远程规则集与代理集合已更新") } else { errorMessage = "以下资源更新失败：\(failed.joined(separator: "、"))" }
     }
 
     /// 菜单栏面板没有宿主窗口，直接用 NSOpenPanel 选择文件
@@ -1391,7 +1399,35 @@ final class AppState {
     }
 
     func copyTerminalCommand() {
-        Pasteboard.copy(terminalProxyCommand)
+        copy(terminalProxyCommand, message: "已复制代理命令")
+    }
+
+    func copy(_ text: String, message: String = "已复制") {
+        Pasteboard.copy(text)
+        showToast(message)
+    }
+
+    func showToast(_ message: String) {
+        let token = UUID()
+        toastToken = token
+        toast = message
+        NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                             userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if toastToken == token { toast = nil }
+        }
+    }
+
+    func flushDNSCache() async {
+        guard let api else { return }
+        do {
+            try await api.flushFakeIP()
+            try await api.flushDNS()
+            showToast("已清空 DNS 缓存")
+        } catch {
+            errorMessage = "清空 DNS 缓存失败：\(error.localizedDescription)"
+        }
     }
 
     /// 官方 Web 面板 metacubexd，优先由本地内核同源提供，避免浏览器混合内容拦截

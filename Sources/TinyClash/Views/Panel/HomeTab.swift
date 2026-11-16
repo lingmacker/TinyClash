@@ -47,7 +47,7 @@ struct HomeTab: View {
 
             switch state.coreState {
             case .running:
-                RouteRibbon(compact: true)
+                route
             case .starting:
                 notice("内核启动中…", action: nil)
             case .stopped:
@@ -55,6 +55,31 @@ struct HomeTab: View {
             case .failed(let msg):
                 notice(msg, action: ("重启内核", { Task { await state.restartCore() } }), isError: true)
             }
+        }
+    }
+
+    /// 出站路径可点击，直接进入主策略组换节点，省去「策略 → 分组」两步
+    @ViewBuilder private var route: some View {
+        if let group = state.primaryGroup {
+            Button { state.openGroupRequest = group.name } label: {
+                HStack(spacing: Theme.Space.s) {
+                    RouteRibbon(compact: true)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
+                .hoverHighlight(cornerRadius: Theme.Radius.tile)
+            }
+            .buttonStyle(PressableStyle())
+            .padding(.horizontal, -6)
+            .help("在「策略」中打开「\(group.name)」切换节点")
+            .accessibilityLabel("当前出站路径：\(state.routeChain.joined(separator: "、"))")
+            .accessibilityHint("打开策略组切换节点")
+        } else {
+            RouteRibbon(compact: true)
         }
     }
 

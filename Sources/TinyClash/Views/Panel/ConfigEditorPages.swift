@@ -51,6 +51,8 @@ struct RuleEditorPage: View {
     /// 策略与规则集名称在停核或待重启时要读取解析 YAML，缓存起来，避免每次输入都重读文件
     @State private var policyNames: [String] = AppState.builtinPolicies
     @State private var ruleProviderNames: [String] = []
+    /// 新规则的插入位置：最前面（默认，优先匹配）或兜底 MATCH 之前
+    @AppStorage("ruleInsertBeforeMatch") private var insertBeforeMatch = false
 
     init(editing: Editing? = nil, canEdit: Bool = true, back: @escaping () -> Void) {
         self.editing = editing
@@ -161,23 +163,32 @@ struct RuleEditorPage: View {
                                     }
                                     .panelPicker()
                                 } else {
-                                    TextField(type.example, text: $payload).textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                                    TextField(type.example, text: $payload).panelField()
                                 }
                             }
                         }
-                        PanelRow(title: "策略", divider: type.noResolve) {
+                        PanelRow(title: "策略", divider: type.noResolve || editing == nil) {
                             if policyNames.count > AppState.builtinPolicies.count {
                                 Picker("策略", selection: $policy) {
                                     ForEach(policyOptions, id: \.self) { Text($0).tag($0) }
                                 }
                                 .panelPicker()
                             } else {
-                                TextField("DIRECT / 分组名", text: $policy).textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                                TextField("DIRECT / 分组名", text: $policy).panelField()
                             }
                         }
                         if type.noResolve {
-                            PanelRow(title: "no-resolve", divider: false) {
+                            PanelRow(title: "no-resolve", divider: editing == nil) {
                                 Toggle("no-resolve", isOn: $noResolve).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                            }
+                        }
+                        if editing == nil {
+                            PanelRow(title: "位置", divider: false) {
+                                Picker("位置", selection: $insertBeforeMatch) {
+                                    Text("最前面").tag(false)
+                                    Text("MATCH 之前").tag(true)
+                                }
+                                .panelPicker()
                             }
                         }
                     }
@@ -221,7 +232,7 @@ struct RuleEditorPage: View {
                 if let editing {
                     try await state.updateRule(editing.target, to: newRule)
                 } else {
-                    try await state.addRule(newRule)
+                    try await state.addRule(newRule, beforeMatch: insertBeforeMatch)
                 }
                 back()
             } catch let e {
@@ -339,7 +350,7 @@ struct GroupEditorPage: View {
                     PanelSection {
                         PanelRow(title: "名称") {
                             if original == nil {
-                                TextField("例如 我的香港", text: $group.name).textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                                TextField("例如 我的香港", text: $group.name).panelField()
                             } else {
                                 Text(group.name).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                             }
@@ -352,11 +363,11 @@ struct GroupEditorPage: View {
                         }
                         if group.isAutoTest {
                             PanelRow(title: "测速地址") {
-                                TextField(state.delayTestURL, text: $group.url).textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                                TextField(state.delayTestURL, text: $group.url).panelField()
                             }
                             PanelRow(title: "间隔（秒）", divider: false) {
                                 TextField("300", value: $group.interval, format: .number.grouping(.never))
-                                    .textFieldStyle(.plain).multilineTextAlignment(.trailing).frame(width: 70)
+                                    .panelField().frame(width: 70)
                             }
                         }
                     }
@@ -365,7 +376,7 @@ struct GroupEditorPage: View {
                             Toggle("包含全部节点", isOn: $group.includeAll).labelsHidden().toggleStyle(.switch).controlSize(.small)
                         }
                         PanelRow(title: "筛选（正则）", divider: false) {
-                            TextField("香港|HK", text: $group.filter).textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                            TextField("香港|HK", text: $group.filter).panelField()
                         }
                     }
                     PanelSection(title: "成员（已选 \(group.proxies.count)）") {

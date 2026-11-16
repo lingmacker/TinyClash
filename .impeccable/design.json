@@ -99,10 +99,10 @@
       "css": ".ds-route{display:flex;align-items:center;gap:5px;color:GrayText;font:11px -apple-system,BlinkMacSystemFont,sans-serif}.ds-route-segment{padding:3px 6px;border-radius:6px;background:rgb(0% 0% 0% / 4%);white-space:nowrap}.ds-route-terminal{background:color-mix(in srgb,AccentColor 14%,transparent);color:CanvasText;font-size:13px;font-weight:600}@media(prefers-color-scheme:dark){.ds-route-segment:not(.ds-route-terminal){background:rgb(100% 100% 100% / 6%)}}"
     },
     {
-      "name": "Selected node row (representative native equivalent)",
+      "name": "Selected node card (representative native equivalent)",
       "kind": "custom",
-      "refersTo": "node-row",
-      "description": "Representative rendered equivalent of NodeRow's selected appearance. Static informational specimen, not a claim to reproduce SwiftUI gesture or accessibility behavior. Browser semantic colors, fonts, and SVG replace native styles for display only. The shipping row includes a separate test action, not represented here.",
+      "refersTo": "node-cell",
+      "description": "Representative rendered equivalent of NodeCell's selected content (the shipping card is one of two grid columns with a corner latency button). Static informational specimen, not a claim to reproduce SwiftUI gesture or accessibility behavior. Browser semantic colors, fonts, and SVG replace native styles for display only. The shipping row includes a separate test action, not represented here.",
       "html": "<div class=\"ds-node\"><svg width=\"13\" height=\"13\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"7\" fill=\"currentColor\"/><path d=\"m4.5 8 2.3 2.3 4.7-4.7\" fill=\"none\" stroke=\"white\" stroke-width=\"1.5\"/></svg><span class=\"ds-node-copy\"><strong>节点</strong><span>节点详情</span></span></div>",
       "css": ".ds-node{display:flex;align-items:center;gap:10px;height:42px;padding:0 10px;border-radius:10px;background:color-mix(in srgb,AccentColor 12%,transparent);color:CanvasText;font:13px -apple-system,BlinkMacSystemFont,sans-serif}.ds-node>svg{color:AccentColor;flex-shrink:0}.ds-node-copy{display:flex;flex-direction:column;gap:1px;min-width:0}.ds-node-copy strong{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds-node-copy>span{color:GrayText;font-size:10px}"
     }

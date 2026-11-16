@@ -98,7 +98,7 @@ struct RequestLogsPage: View {
     }
 
     private func copy(_ text: String) {
-        Pasteboard.copy(text)
+        state.copy(text)
     }
 }
 

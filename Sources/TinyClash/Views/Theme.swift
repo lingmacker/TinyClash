@@ -52,11 +52,6 @@ enum Theme {
     static let selectedSurface = Color(nsColor: NSColor(name: nil) { a in
         a.isDark ? darkSelected : .white
     })
-    /// 石墨色次要实心按钮（退出），呼应应用图标的石墨底
-    static let graphite = Color(nsColor: NSColor(name: nil) { a in
-        a.isDark ? NSColor(srgbRed: 0.30, green: 0.305, blue: 0.32, alpha: 1)
-                 : NSColor(srgbRed: 0.18, green: 0.184, blue: 0.196, alpha: 1)
-    })
     /// 已开启的开关卡片：比 OrangePulse 略深的实心橙渐变，保证白字对比度
     static let activeTileGradient = LinearGradient(
         colors: [Color(.sRGB, red: 212 / 255, green: 82 / 255, blue: 24 / 255, opacity: 1),
@@ -105,13 +100,13 @@ enum Theme {
     })
     static let failure = semantic(.systemRed, light: 215, 0, 21)
 
-    /// 策略名的颜色：直连绿、拒绝红、其余用可读的暖橙文字色
+    /// 策略名的颜色：直连绿、拒绝红，其余用主文字色。橙色只表示「已开启 / 已选中」，不给普通策略名
     static func policyTint(_ policy: String) -> Color {
         switch policy.uppercased() {
         case "DIRECT": return active
         case "REJECT", "REJECT-DROP": return failure
         case "未知策略": return .secondary
-        default: return accentForeground
+        default: return .primary
         }
     }
 
@@ -124,10 +119,10 @@ enum Theme {
         return .secondary
     }
 
-    /// 策略组类型：手动用暖橙文字色（与策略名一致），自动类按策略分色
+    /// 策略组类型：手动是默认类型，保持中性；自动类按策略分色
     static func groupTypeTint(_ apiType: String) -> Color {
         switch apiType {
-        case "Selector": return accentForeground
+        case "Selector": return .secondary
         case "URLTest": return download
         case "Fallback": return upload
         case "LoadBalance": return indigo
@@ -205,6 +200,15 @@ extension View {
             )
     }
 
+    /// 设置行内的可编辑文本框：浅色内嵌底，与只读数值区分开
+    func panelField(alignment: TextAlignment = .trailing) -> some View {
+        textFieldStyle(.plain)
+            .multilineTextAlignment(alignment)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(Theme.inset, in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
+    }
+
     /// 可点击面板的悬停反馈
     func hoverHighlight(cornerRadius: CGFloat = Theme.Radius.panel) -> some View {
         modifier(HoverHighlight(cornerRadius: cornerRadius))
@@ -213,6 +217,7 @@ extension View {
 
 struct HoverHighlight: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var isEnabled
     var cornerRadius: CGFloat
     @State private var hovering = false
 
@@ -220,7 +225,7 @@ struct HoverHighlight: ViewModifier {
         content
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Color.primary.opacity(hovering ? 0.045 : 0))
+                    .fill(Color.primary.opacity(hovering && isEnabled ? 0.045 : 0))
                     .allowsHitTesting(false)
             )
             .onHover { hovering = $0 }
@@ -264,18 +269,22 @@ struct LoadingHint: View {
     }
 }
 
-/// 小标签（类型、来源）
+/// 小标签（类型、来源）；警示类标签带图标，不只靠颜色区分
 struct Tag: View {
     var text: String
     var tint: Color = .secondary
+    var icon: String? = nil
 
     var body: some View {
-        Text(text)
-            .font(.caption2.weight(.medium))
-            .foregroundStyle(tint)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
+        HStack(spacing: 3) {
+            if let icon { Image(systemName: icon).imageScale(.small) }
+            Text(text)
+        }
+        .font(.caption2.weight(.medium))
+        .foregroundStyle(tint)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
     }
 }
 

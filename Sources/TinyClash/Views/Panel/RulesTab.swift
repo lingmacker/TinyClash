@@ -115,34 +115,39 @@ struct RulesTab: View {
                     .multilineTextAlignment(.center)
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: Theme.Space.s) {
+                    VStack(alignment: .leading, spacing: Theme.Space.s) {
                         if state.currentMode != .rule {
                             Text("当前为\(state.currentMode.title)模式；切换到规则模式后，以下规则才参与匹配。")
                                 .font(.caption2).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .padding(.horizontal, 4)
                         }
-                        ForEach(Array(rules.enumerated()), id: \.offset) { index, rule in
-                            Button { open(rule, at: index) } label: {
-                                RuleCard(rule: rule)
-                                    .hoverHighlight(cornerRadius: Theme.Radius.tile)
-                            }
-                            .buttonStyle(PressableStyle())
-                            .contextMenu {
-                                Button("编辑规则") { open(rule, at: index) }
-                                Button("复制匹配内容") { copy(rule.payload) }.disabled(rule.payload.isEmpty)
-                                Button("复制目标策略") { copy(rule.proxy) }
-                                Divider()
-                                Button("删除规则…", role: .destructive) { confirmDelete(rule, at: index) }
-                                    .disabled(!canEditRules)
-                            }
-                            .accessibilityAction(named: "编辑规则") {
-                                open(rule, at: index)
-                            }
-                            .accessibilityAction(named: "删除规则") {
-                                if canEditRules { confirmDelete(rule, at: index) }
+                        // 规则按顺序匹配：放在同一个分组里紧凑排列，并显示序号
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(rules.enumerated()), id: \.offset) { index, rule in
+                                Button { open(rule, at: index) } label: {
+                                    RuleRow(rule: rule, ordinal: index + 1, digits: String(rules.count).count,
+                                            divider: index < rules.count - 1)
+                                }
+                                .buttonStyle(PressableStyle())
+                                .contextMenu {
+                                    Button("编辑规则") { open(rule, at: index) }
+                                    Button("复制匹配内容") { copy(rule.payload) }.disabled(rule.payload.isEmpty)
+                                    Button("复制目标策略") { copy(rule.proxy) }
+                                    Divider()
+                                    Button("删除规则…", role: .destructive) { confirmDelete(rule, at: index) }
+                                        .disabled(!canEditRules)
+                                }
+                                .accessibilityAction(named: "编辑规则") {
+                                    open(rule, at: index)
+                                }
+                                .accessibilityAction(named: "删除规则") {
+                                    if canEditRules { confirmDelete(rule, at: index) }
+                                }
                             }
                         }
+                        .card(cornerRadius: Theme.Radius.section)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.section, style: .continuous))
                     }
                     .padding(14)
                 }
@@ -151,7 +156,7 @@ struct RulesTab: View {
     }
 
     private func copy(_ text: String) {
-        Pasteboard.copy(text)
+        state.copy(text)
     }
 
     private func open(_ rule: RuleItem, at index: Int) {
@@ -197,8 +202,12 @@ struct RulesTab: View {
     }
 }
 
-private struct RuleCard: View {
+/// 规则行：序号 + 匹配内容在上，类型与目标策略在下；类型放在第二行，长短不一也不会错开匹配内容
+private struct RuleRow: View {
     var rule: RuleItem
+    var ordinal: Int
+    var digits: Int
+    var divider: Bool
 
     private var typeText: String { ConfigOverlay.yamlRuleType(rule.type) }
 
@@ -208,37 +217,47 @@ private struct RuleCard: View {
         return typeText == "MATCH" ? "Default" : "—"
     }
 
+    /// 序号列按总条数的位数定宽，保证各行内容对齐
+    private var ordinalWidth: CGFloat { CGFloat(max(digits, 2)) * 7 + 2 }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("\(ordinal)")
+                .font(Theme.numeral(10, weight: .medium))
+                .foregroundStyle(.tertiary)
+                .frame(width: ordinalWidth, alignment: .trailing)
+            VStack(alignment: .leading, spacing: 3) {
                 Text(payloadText)
-                    .font(.callout.weight(.semibold))
+                    .font(.callout)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .help(rule.payload)
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.tertiary)
-                    .fixedSize()
-            }
-            HStack(spacing: 8) {
-                Tag(text: typeText, tint: Theme.ruleTypeTint(typeText))
-                    .fixedSize()
-                Spacer(minLength: 8)
-                Text(rule.proxy)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(Theme.policyTint(rule.proxy))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(rule.proxy)
+                HStack(spacing: 8) {
+                    Text(typeText)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(Theme.ruleTypeTint(typeText))
+                        .fixedSize()
+                    Spacer(minLength: 8)
+                    Text(rule.proxy)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Theme.policyTint(rule.proxy))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(rule.proxy)
+                }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.leading, 6)
+        .padding(.trailing, 12)
+        .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .card()
         .contentShape(Rectangle())
+        .hoverHighlight(cornerRadius: 0)
+        .overlay(alignment: .bottom) {
+            if divider { Divider().padding(.leading, ordinalWidth + 14) }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("第 \(ordinal) 条，\(typeText) \(payloadText)，\(rule.proxy)")
     }
 }

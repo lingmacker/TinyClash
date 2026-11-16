@@ -113,9 +113,10 @@ enum ConfigOverlay {
         return lines.joined(separator: newline)
     }
 
-    static func addRule(_ rule: String, to yaml: String) throws -> String {
+    /// 新规则默认插到最前面；beforeMatch 时插到兜底 MATCH / FINAL 之前（没有兜底规则则追加到末尾）
+    static func addRule(_ rule: String, beforeMatch: Bool = false, to yaml: String) throws -> String {
         var (lines, newline) = try editableLines(yaml)
-        try insertRules([rule], deduplicate: false, into: &lines)
+        try insertRules([rule], deduplicate: false, beforeMatch: beforeMatch, into: &lines)
         return lines.joined(separator: newline)
     }
 
@@ -381,7 +382,13 @@ enum ConfigOverlay {
 
     // MARK: - Insertion
 
-    private static func insertRules(_ rules: [String], deduplicate: Bool, into lines: inout [String]) throws {
+    private static func isMatchRule(_ text: String) -> Bool {
+        let type = normalizeType(splitTopLevelCommas(text).first?.trimmingCharacters(in: .whitespaces) ?? "")
+        return type == "match" || type == "final"
+    }
+
+    private static func insertRules(_ rules: [String], deduplicate: Bool, beforeMatch: Bool = false,
+                                    into lines: inout [String]) throws {
         guard !rules.isEmpty else { return }
         guard let keyIndex = topLevelKeyIndex("rules", in: lines) else {
             if lines.last?.isEmpty == false { lines.append("") }
@@ -405,6 +412,13 @@ enum ConfigOverlay {
             var seen = deduplicate ? existing : Set<String>()
             let items = rules.filter { !deduplicate || seen.insert($0).inserted }.map(quote)
             guard !items.isEmpty else { return }
+            if beforeMatch {
+                var current = splitFlowSequence(inner)
+                let at = current.firstIndex { isMatchRule(unquoteScalar($0)) } ?? current.count
+                current.insert(contentsOf: items, at: at)
+                lines[keyIndex].replaceSubrange(range, with: "[\(current.joined(separator: ", "))]")
+                return
+            }
             lines[keyIndex].replaceSubrange(range, with: "[\(items.joined(separator: ", ")), \(inner)]")
             return
         } else if !rest.isEmpty {
@@ -419,7 +433,21 @@ enum ConfigOverlay {
         guard !filtered.isEmpty else { return }
 
         let indent = listIndent(in: lines, range: (keyIndex + 1)..<end)
-        lines.insert(contentsOf: filtered.map { "\(indent)- \(yamlRuleScalar($0))" }, at: keyIndex + 1)
+        var insertion = keyIndex + 1
+        if beforeMatch {
+            let entries = parseRuleEntries(in: lines, range: (keyIndex + 1)..<end)
+            if let match = entries.first(where: { isMatchRule($0.text) }) {
+                // 紧贴在 MATCH 上方的注释属于 MATCH，新规则插在注释之前
+                insertion = match.lineIndex
+                while insertion > keyIndex + 1,
+                      lines[insertion - 1].trimmingCharacters(in: .whitespaces).hasPrefix("#") {
+                    insertion -= 1
+                }
+            } else if let last = entries.last {
+                insertion = last.lineIndex + 1
+            }
+        }
+        lines.insert(contentsOf: filtered.map { "\(indent)- \(yamlRuleScalar($0))" }, at: insertion)
     }
 
     private static func insertGroups(_ groups: [CustomGroup], deduplicate: Bool, into lines: inout [String]) throws {

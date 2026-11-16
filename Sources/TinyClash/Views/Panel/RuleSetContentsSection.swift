@@ -68,7 +68,7 @@ struct RuleSetContentsSection: View {
                 ForEach(Array(entries.enumerated()), id: \.offset) { index, entry in
                     RuleSetEntryRow(entry: entry, classical: classical, divider: index < entries.count - 1)
                         .contextMenu {
-                            Button("复制规则") { Pasteboard.copy(entry) }
+                            Button("复制规则") { state.copy(entry) }
                         }
                 }
             }

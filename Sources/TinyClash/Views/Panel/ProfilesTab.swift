@@ -32,6 +32,41 @@ struct ProfilesTab: View {
 
     private var list: some View {
         VStack(spacing: 0) {
+            // 与「策略」「规则」一致：操作放在顶部工具栏
+            HStack(spacing: 10) {
+                Text("\(state.profiles.count) 个配置").font(.caption).foregroundStyle(.secondary)
+                Spacer(minLength: 4)
+                Button { Task { await state.updateAllProfiles() } } label: {
+                    Label("全部更新", systemImage: "arrow.clockwise")
+                }
+                .toolbarAction()
+                .disabled(!hasSubscriptions)
+                .help("更新全部订阅；本地修改过的订阅不会被覆盖，需在卡片上单独更新")
+                Menu {
+                    Button("导入 YAML 文件…") { Task { await state.importProfileFromFile() } }
+                    Button("新建空白配置") {
+                        if let p = state.createBlankProfile() { NSWorkspace.shared.open(p.fileURL) }
+                    }
+                } label: {
+                    Label("导入", systemImage: "square.and.arrow.down").font(.caption)
+                }
+                // borderlessButton 菜单会用系统字号和强调色重绘标签；改用按钮样式，
+                // 让它和旁边的工具栏按钮一样走 borderless 按钮的字号与 toolbarAction 颜色
+                .menuStyle(.button)
+                .buttonStyle(.borderless)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .toolbarAction()
+                .help("导入本地 YAML 或新建空白配置")
+                Button { adding = true } label: {
+                    Label("添加订阅", systemImage: "plus")
+                }
+                .toolbarAction(prominent: true)
+            }
+            .font(.caption)
+            .buttonStyle(.borderless)
+            .padding(14)
+            Divider()
             ScrollView {
                 VStack(spacing: Theme.Space.s) {
                     if state.profiles.isEmpty {
@@ -45,59 +80,7 @@ struct ProfilesTab: View {
                 }
                 .padding(14)
             }
-            Divider()
-            HStack(spacing: Theme.Space.s) {
-                Button { adding = true } label: {
-                    ProfileFooterLabel(title: "添加订阅", icon: "plus", prominent: true)
-                }
-                .buttonStyle(PressableStyle())
-                Button { Task { await state.importProfileFromFile() } } label: {
-                    ProfileFooterLabel(title: "导入文件", icon: "square.and.arrow.down")
-                }
-                .buttonStyle(PressableStyle())
-                Spacer()
-                Menu {
-                    Button("新建空白配置") {
-                        if let p = state.createBlankProfile() { NSWorkspace.shared.open(p.fileURL) }
-                    }
-                    Button("更新全部订阅") { Task { await state.updateAllProfiles() } }
-                        .disabled(!hasSubscriptions)
-                        .help("本地修改过的订阅不会被覆盖，需在卡片上单独更新")
-                } label: { ProfileFooterLabel(icon: "ellipsis") }
-                    .menuStyle(.button)
-                    .buttonStyle(PressableStyle())
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                    .help("更多配置操作")
-                    .accessibilityLabel("更多配置操作")
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
         }
-    }
-}
-
-private struct ProfileFooterLabel: View {
-    var title: String? = nil
-    var icon: String
-    var prominent = false
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: icon)
-            if let title { Text(title) }
-        }
-        .font(.caption.weight(.semibold))
-        .foregroundStyle(prominent ? AnyShapeStyle(Theme.accentForeground) : AnyShapeStyle(.primary))
-        .padding(.horizontal, 8)
-        .frame(height: 24)
-        .background(prominent ? Theme.controlFill : Theme.panel,
-                    in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
-                .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
-        )
-        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
     }
 }
 
@@ -122,7 +105,7 @@ private struct ProfileCard: View {
                         Text(profile.name).font(.callout.weight(.semibold)).lineLimit(1).truncationMode(.middle)
                         Tag(text: profile.kind == .remote ? "订阅" : "本地")
                         if locallyModified {
-                            Tag(text: "本地已修改", tint: Theme.warningText)
+                            Tag(text: "本地已修改", tint: Theme.warningText, icon: "pencil")
                                 .help("此订阅在本地改过，已暂停自动更新；手动更新会覆盖修改（覆盖前自动备份）")
                         }
                     }
@@ -131,8 +114,12 @@ private struct ProfileCard: View {
                             Text("更新于 \(Format.updateAge(profile.updatedAt, now: context.date))")
                         }
                         if let exp = profile.subscription?.expire {
-                            Text("到期 \(exp.formatted(date: .numeric, time: .omitted))")
-                                .foregroundStyle(exp.timeIntervalSinceNow < 7 * 86400 ? Theme.warningText : .secondary)
+                            let soon = exp.timeIntervalSinceNow < 7 * 86400
+                            HStack(spacing: 3) {
+                                if soon { Image(systemName: "exclamationmark.circle.fill") }
+                                Text("到期 \(exp.formatted(date: .numeric, time: .omitted))")
+                            }
+                            .foregroundStyle(soon ? Theme.warningText : .secondary)
                         }
                     }
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
@@ -179,17 +166,14 @@ private struct ProfileCard: View {
             if state.selectedProfileID == profile.id {
                 Button("重新加载（编辑 YAML 后）") { Task { await state.reloadCurrentProfile() } }
             }
-            Button(state.updatingProfileNodes.contains(profile.id) ? "正在更新订阅节点…" : "更新订阅节点") {
+            Button(nodeUpdateTitle) {
                 Task { await state.updateProfileNodes(profile.id) }
             }
             .disabled(!state.canUpdateProfileNodes(profile.id))
-            if state.selectedProfileID != profile.id || !state.isRunning {
-                Text("请先切换到此配置并启动内核")
-            }
             Button("编辑信息…", action: onEdit)
             Button("在 Finder 中显示") { NSWorkspace.shared.activateFileViewerSelecting([profile.fileURL]) }
             if let url = profile.url {
-                Button("复制订阅链接") { Pasteboard.copy(url) }
+                Button("复制订阅链接") { state.copy(url, message: "已复制订阅链接") }
             }
             if let home = profile.homepage, let u = URL(string: home) {
                 Button("打开订阅主页") { NSWorkspace.shared.open(u) }
@@ -202,6 +186,14 @@ private struct ProfileCard: View {
             .fixedSize()
             .help("更多操作")
             .accessibilityLabel("「\(profile.name)」的更多操作")
+    }
+
+    /// 不可用的原因直接写在菜单项标题里，不再额外放一条不能点的说明
+    private var nodeUpdateTitle: String {
+        if state.updatingProfileNodes.contains(profile.id) { return "正在更新订阅节点…" }
+        if state.selectedProfileID != profile.id { return "更新订阅节点（需先切换到此配置）" }
+        if !state.isRunning { return "更新订阅节点（需先启动内核）" }
+        return "更新订阅节点"
     }
 
     private func confirmDelete() {
@@ -259,13 +251,12 @@ private struct AddSubscriptionPage: View {
             SubpageHeader(title: "添加订阅", back: back)
             VStack(alignment: .leading, spacing: Theme.Space.m) {
                 PanelSection(footer: "订阅需返回 mihomo / Clash 格式的 YAML；添加时会用内核校验。") {
-                    TextField("订阅链接", text: $url)
-                        .textFieldStyle(.plain)
-                        .padding(.horizontal, 12).frame(height: 36)
-                    Divider().padding(.leading, 12)
-                    TextField("名称（可选）", text: $name)
-                        .textFieldStyle(.plain)
-                        .padding(.horizontal, 12).frame(height: 36)
+                    PanelRow(title: "订阅链接") {
+                        TextField("https://", text: $url).panelField()
+                    }
+                    PanelRow(title: "名称", divider: false) {
+                        TextField("可选", text: $name).panelField()
+                    }
                 }
                 if let error {
                     ScrollView {
@@ -327,12 +318,12 @@ private struct EditProfilePage: View {
             VStack(alignment: .leading, spacing: Theme.Space.m) {
                 PanelSection {
                     PanelRow(title: "名称", divider: profile.kind == .remote) {
-                        TextField("名称", text: $profile.name).textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                        TextField("名称", text: $profile.name).panelField()
                     }
                     if profile.kind == .remote {
                         PanelRow(title: "订阅链接") {
                             TextField("https://", text: Binding(get: { profile.url ?? "" }, set: { profile.url = $0 }))
-                                .textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                                .panelField()
                         }
                         PanelRow(title: "自动更新", divider: false) {
                             Stepper(profile.updateInterval == 0 ? "关闭" : "每 \(profile.updateInterval) 小时",

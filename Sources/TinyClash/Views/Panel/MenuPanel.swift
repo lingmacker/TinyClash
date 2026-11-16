@@ -59,6 +59,7 @@ struct MenuBarLabel: View {
 /// 菜单栏面板：TinyClash 的全部界面
 struct MenuPanel: View {
     @Environment(AppState.self) private var state
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tab: PanelTab = {
         #if TINYCLASH_PREVIEW
         return PanelTab(rawValue: UserDefaults.standard.string(forKey: "uiTab") ?? "") ?? .home
@@ -101,6 +102,17 @@ struct MenuPanel: View {
         }
         // 确认框显示时禁用下层内容，避免其中的 ⎋ 返回等快捷键抢先响应
         .disabled(state.confirmation != nil)
+        .overlay(alignment: .bottom) {
+            ZStack {
+                if let toast = state.toast {
+                    ToastView(text: toast)
+                        .padding(.bottom, 14)
+                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
+                }
+            }
+            // 动画只作用于提示层，不影响面板其他内容
+            .animation(.easeOut(duration: reduceMotion ? 0.12 : 0.2), value: state.toast)
+        }
         .overlay {
             if let confirmation = state.confirmation {
                 ConfirmationOverlay(confirmation: confirmation)
@@ -123,6 +135,9 @@ struct MenuPanel: View {
         }
         .onChange(of: state.addSubscriptionRequest) {
             if state.addSubscriptionRequest != nil { tab = .profiles }
+        }
+        .onChange(of: state.openGroupRequest) {
+            if state.openGroupRequest != nil { tab = .proxies }
         }
         #if TINYCLASH_PREVIEW
         .task {
@@ -178,22 +193,16 @@ struct MenuPanel: View {
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: Theme.Space.s)
+            // 退出是低频操作且有 ⌘Q，只用低调的图标按钮，不和状态抢视线
             Button { NSApp.terminate(nil) } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "power")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text("退出")
-                        .font(.caption.weight(.medium))
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Theme.graphite, in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
-                .hoverHighlight(cornerRadius: Theme.Radius.chip)
-                .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
+                Image(systemName: "power")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 26, height: 26)
+                    .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
+                    .hoverHighlight(cornerRadius: Theme.Radius.chip)
             }
             .buttonStyle(PressableStyle())
-            .fixedSize()
             .disabled(state.quitting)
             .opacity(state.quitting ? 0.5 : 1)
             .keyboardShortcut("q")
@@ -210,12 +219,21 @@ struct MenuPanel: View {
                         Image(systemName: t.icon).font(.system(size: 13, weight: .medium))
                         Text(t.title).font(.caption2.weight(.medium))
                     }
-                    .foregroundStyle(tab == t ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                    // 当前标签用中性凸起面 + 暖橙文字；实心橙只留给「已开启」的开关
+                    .foregroundStyle(tab == t ? AnyShapeStyle(Theme.accentForeground) : AnyShapeStyle(.secondary))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 6)
-                    .background(tab == t ? AnyShapeStyle(Theme.activeTileGradient) : AnyShapeStyle(Color.clear),
-                                in: RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
+                    .background {
+                        if tab == t {
+                            RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
+                                .fill(Theme.selectedSurface)
+                                .overlay(RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
+                                    .strokeBorder(Theme.panelBorder, lineWidth: 0.5))
+                                .shadow(color: .black.opacity(0.06), radius: 1.5, y: 1)
+                        }
+                    }
                     .contentShape(Rectangle())
+                    .hoverHighlight(cornerRadius: Theme.Radius.tile)
                 }
                 .buttonStyle(PressableStyle())
                 .keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
@@ -253,7 +271,7 @@ private struct ErrorBanner: View {
                     .help("关闭")
                     .accessibilityLabel("关闭错误提示")
                 Button {
-                    Pasteboard.copy(message)
+                    state.copy(message, message: "已复制错误信息")
                 } label: { Image(systemName: "doc.on.doc").font(.system(size: 10)) }
                     .buttonStyle(.borderless)
                     .help("复制错误信息")
@@ -263,6 +281,26 @@ private struct ErrorBanner: View {
         }
         .padding(10)
         .background(Theme.failure.opacity(0.1), in: RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
+    }
+}
+
+/// 面板底部的短暂成功提示，不抢焦点
+private struct ToastView: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.active)
+            Text(text).font(.caption.weight(.medium))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
+            .strokeBorder(Theme.panelBorder, lineWidth: 0.5))
+        .shadow(color: Color(nsColor: .shadowColor).opacity(0.14), radius: 10, y: 3)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 

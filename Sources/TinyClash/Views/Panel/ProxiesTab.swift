@@ -17,6 +17,12 @@ struct ProxiesTab: View {
     private var canEditGroups: Bool { state.canEditSelectedProfile }
 
     var body: some View {
+        content
+            .onAppear(perform: takeOpenGroupRequest)
+            .onChange(of: state.openGroupRequest) { takeOpenGroupRequest() }
+    }
+
+    @ViewBuilder private var content: some View {
         switch route {
         case .requests:
             RequestLogsPage { route = .list }
@@ -40,6 +46,14 @@ struct ProxiesTab: View {
                 }
             }
         }
+    }
+
+    /// 首页点击出站路径后直接进入对应分组
+    private func takeOpenGroupRequest() {
+        guard let name = state.openGroupRequest else { return }
+        state.openGroupRequest = nil
+        route = .list
+        openGroup = name
     }
 
     private var overview: some View {
@@ -275,8 +289,11 @@ private struct GroupDetail: View {
             }
             Divider()
             ScrollView {
-                LazyVStack(spacing: 4) {
-                    ForEach(members, id: \.self) { NodeRow(name: $0, group: group, showsProtocol: showsProtocol) }
+                // 两列节点卡片：一屏能看到的节点数约为单列的两倍
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: Theme.Space.s),
+                                    GridItem(.flexible(), spacing: Theme.Space.s)],
+                          spacing: Theme.Space.s) {
+                    ForEach(members, id: \.self) { NodeCell(name: $0, group: group, showsProtocol: showsProtocol) }
                 }
                 .padding(14)
             }
@@ -291,56 +308,79 @@ private struct GroupDetail: View {
     }
 }
 
-private struct NodeRow: View {
+/// 节点卡片：整张卡片是选择按钮；右下角的延迟读数是独立的测速按钮
+private struct NodeCell: View {
     @Environment(AppState.self) private var state
     let name: String
     let group: ProxyItem
     var showsProtocol = true
-    @State private var hovering = false
 
     var body: some View {
         let isPending = state.pendingNewGroupNames.contains(group.name)
         let canSelect = group.isSelectable && !isPending
         let selected = !isPending && group.now == name
-        let item = state.proxies[name]
-        HStack(spacing: 10) {
-            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 13))
-                .foregroundStyle(selected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary))
-                .opacity(selected || canSelect ? 1 : 0)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(name).font(.callout.weight(selected ? .semibold : .regular)).lineLimit(1).truncationMode(.middle)
-                if let detail = detail(item) {
-                    Text(detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+        ZStack(alignment: .bottomTrailing) {
+            Button(action: choose) {
+                card(selected: selected, detail: detail(state.proxies[name]))
+            }
+            .buttonStyle(PressableStyle())
+            .disabled(!canSelect)
+            .accessibilityLabel(name)
+            .accessibilityValue(Theme.latencyText(state.delay(of: name)))
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            .accessibilityAction(named: "测试延迟") { Task { await state.testProxy(name) } }
+            latency
+                .padding(.trailing, 10)
+                .padding(.bottom, 8)
+        }
+        .help(name)
+        .contextMenu {
+            Button("测试延迟") { Task { await state.testProxy(name) } }
+            Button("复制节点名") { state.copy(name) }
+        }
+    }
+
+    private func card(selected: Bool, detail: String?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Text(name)
+                    .font(.callout.weight(selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? AnyShapeStyle(Theme.accentForeground) : AnyShapeStyle(.primary))
+                    .lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 0)
+                if selected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.accentForeground)
                 }
             }
-            Spacer(minLength: 6)
-            if state.testingProxies.contains(name) {
-                ProgressView().controlSize(.mini)
-            } else {
-                Button { Task { await state.testProxy(name) } } label: {
-                    LatencyLabel(ms: state.delay(of: name), placeholder: "测速")
-                }
-                .buttonStyle(.plain)
-                .help("测试延迟")
-            }
+            Text(detail ?? " ")
+                .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                .padding(.trailing, 56)
         }
         .padding(.horizontal, 10)
-        .frame(height: 42)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
-                .fill(selected ? AnyShapeStyle(Theme.controlFill)
-                               : AnyShapeStyle(hovering ? Theme.inset : Color.clear))
-        )
-        .contentShape(Rectangle())
-        .onHover { hovering = $0 && canSelect }
-        .onTapGesture(perform: choose)
-        .help(name)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(selected ? [.isSelected, .isButton] : canSelect ? .isButton : [])
-        .accessibilityAction { choose() }
-        .accessibilityAction(named: "测试延迟") { Task { await state.testProxy(name) } }
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(selected ? Theme.controlFill : Theme.panel,
+                    in: RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
+            .strokeBorder(selected ? Theme.accent.opacity(0.45) : Theme.panelBorder, lineWidth: selected ? 1 : 0.5))
+        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
+        .hoverHighlight(cornerRadius: Theme.Radius.tile)
+    }
+
+    @ViewBuilder private var latency: some View {
+        if state.testingProxies.contains(name) {
+            ProgressView().controlSize(.mini)
+        } else {
+            Button { Task { await state.testProxy(name) } } label: {
+                LatencyLabel(ms: state.delay(of: name), placeholder: "测速")
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("测试延迟")
+            .accessibilityLabel("测试「\(name)」的延迟")
+        }
     }
 
     private func choose() {
