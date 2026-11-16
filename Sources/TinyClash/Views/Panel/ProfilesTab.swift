@@ -48,15 +48,15 @@ struct ProfilesTab: View {
                         if let p = state.createBlankProfile() { NSWorkspace.shared.open(p.fileURL) }
                     }
                 } label: {
-                    Label("导入", systemImage: "square.and.arrow.down").font(.caption)
+                    Label("导入", systemImage: "square.and.arrow.down")
                 }
-                // borderlessButton 菜单会用系统字号和强调色重绘标签；改用按钮样式，
-                // 让它和旁边的工具栏按钮一样走 borderless 按钮的字号与 toolbarAction 颜色
+                // borderless 按钮样式下菜单标签会被 AppKit 按系统字号重绘；plain 样式才沿用
+                // 这里的 caption 字号，与旁边的工具栏按钮一样大
                 .menuStyle(.button)
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .toolbarAction()
+                .toolbarAction(prominent: true)
                 .help("导入本地 YAML 或新建空白配置")
                 Button { adding = true } label: {
                     Label("添加订阅", systemImage: "plus")
@@ -236,6 +236,8 @@ private struct ProfileCard: View {
 private struct AddSubscriptionPage: View {
     @Environment(AppState.self) private var state
     var back: () -> Void
+    /// 添加 / 编辑表单的输入框统一宽度，左缘对齐，不随标签文字长短变化
+    static let fieldWidth: CGFloat = 220
     @State private var url: String
 
     init(initialURL: String, back: @escaping () -> Void) {
@@ -252,10 +254,10 @@ private struct AddSubscriptionPage: View {
             VStack(alignment: .leading, spacing: Theme.Space.m) {
                 PanelSection(footer: "订阅需返回 mihomo / Clash 格式的 YAML；添加时会用内核校验。") {
                     PanelRow(title: "订阅链接") {
-                        TextField("https://", text: $url).panelField()
+                        TextField("https://", text: $url).panelField().frame(width: Self.fieldWidth)
                     }
                     PanelRow(title: "名称", divider: false) {
-                        TextField("可选", text: $name).panelField()
+                        TextField("可选", text: $name).panelField().frame(width: Self.fieldWidth)
                     }
                 }
                 if let error {
@@ -318,12 +320,12 @@ private struct EditProfilePage: View {
             VStack(alignment: .leading, spacing: Theme.Space.m) {
                 PanelSection {
                     PanelRow(title: "名称", divider: profile.kind == .remote) {
-                        TextField("名称", text: $profile.name).panelField()
+                        TextField("名称", text: $profile.name).panelField().frame(width: AddSubscriptionPage.fieldWidth)
                     }
                     if profile.kind == .remote {
                         PanelRow(title: "订阅链接") {
                             TextField("https://", text: Binding(get: { profile.url ?? "" }, set: { profile.url = $0 }))
-                                .panelField()
+                                .panelField().frame(width: AddSubscriptionPage.fieldWidth)
                         }
                         PanelRow(title: "自动更新", divider: false) {
                             Stepper(profile.updateInterval == 0 ? "关闭" : "每 \(profile.updateInterval) 小时",

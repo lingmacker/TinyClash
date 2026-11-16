@@ -5,28 +5,31 @@ struct HomeTab: View {
     @Environment(AppState.self) private var state
 
     var body: some View {
-        // 面板高度固定：内容至少撑满可视高度，流量图吸收剩余空间，底部不留空白；
-        // 出现错误横幅等内容放不下时仍可滚动
-        GeometryReader { geo in
-            ScrollView {
-                VStack(alignment: .leading, spacing: Theme.Space.m) {
-                    if state.profiles.isEmpty {
-                        emptyState
-                    } else {
-                        controls
-                        if state.isRunning {
-                            TrafficPanel()
-                        } else {
-                            Spacer(minLength: 0)
-                        }
-                        actions
-                    }
-                }
-                .padding(14)
-                .frame(minHeight: geo.size.height, alignment: .top)
-            }
-            .scrollBounceBehavior(.basedOnSize)
+        // 面板高度固定：放得下时不套滚动视图，流量图吸收剩余空间，正好撑满且没有滚动条；
+        // 出现错误横幅等内容放不下时才退回可滚动的版本
+        ViewThatFits(in: .vertical) {
+            content
+            ScrollView { content }
+                .scrollBounceBehavior(.basedOnSize)
         }
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.m) {
+            if state.profiles.isEmpty {
+                emptyState
+            } else {
+                controls
+                if state.isRunning {
+                    TrafficPanel()
+                } else {
+                    Spacer(minLength: 0)
+                }
+                actions
+            }
+        }
+        .padding(14)
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     // MARK: - 主开关
@@ -163,7 +166,7 @@ private struct TrafficPanel: View {
                 SpeedReadout(label: "上传", icon: "arrow.up", value: state.upSpeed, tint: Theme.upload)
                     .frame(width: 130, alignment: .leading)
             }
-            TrafficChart(points: state.trafficHistory).frame(minHeight: 72, maxHeight: .infinity)
+            TrafficChart(points: state.trafficHistory).frame(minHeight: 72, idealHeight: 72, maxHeight: .infinity)
             HStack(spacing: 0) {
                 fact("连接", "\(state.connections.count)")
                 fact("内存", Format.bytes(state.memory))
