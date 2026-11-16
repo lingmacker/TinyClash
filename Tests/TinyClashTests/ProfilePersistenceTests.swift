@@ -641,4 +641,56 @@ final class ProfilePersistenceTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.directory.appendingPathComponent("公司机场-2.yaml").path))
         XCTAssertEqual(store.load(), reconciled)
     }
+
+    func testSaveProfilePreservesConcurrentSubscriptionMetadataUpdates() throws {
+        let fixture = try Fixture()
+        let store = fixture.store()
+        var remote = Profile(name: "Sub", kind: .remote, url: "https://example.com/old",
+                             fileName: "Sub.yaml", updatedAt: Date(timeIntervalSince1970: 1_700_000_000), updateInterval: 24)
+        remote.downloadedHash = "old-hash"
+        try Data("a: 1\n".utf8).write(to: fixture.directory.appendingPathComponent(remote.fileName))
+
+        // Snapshot taken when EditProfilePage opened
+        var staleDraft = remote
+        staleDraft.name = "Renamed Sub"
+        staleDraft.url = "https://example.com/new"
+        staleDraft.updateInterval = 12
+
+        // Background auto-update finishes before the user clicks Save
+        var refreshed = remote
+        refreshed.updatedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        refreshed.downloadedHash = "new-hash"
+        refreshed.subscription = SubscriptionInfo(header: "upload=100; download=200; total=1000")
+        store.save([refreshed])
+
+        let saved = try store.saveProfile(staleDraft, in: [refreshed])
+        XCTAssertEqual(saved[0].name, "Renamed Sub")
+        XCTAssertEqual(saved[0].fileName, "Renamed Sub.yaml")
+        XCTAssertEqual(saved[0].url, "https://example.com/new")
+        XCTAssertEqual(saved[0].updateInterval, 12)
+        XCTAssertEqual(saved[0].updatedAt, refreshed.updatedAt)
+        XCTAssertEqual(saved[0].downloadedHash, "new-hash")
+        XCTAssertEqual(saved[0].subscription, refreshed.subscription)
+    }
+
+    func testTailLogReadsTrailingLinesFromLargeFile() throws {
+        let fixture = try Fixture()
+        let logURL = fixture.directory.appendingPathComponent("core.log")
+        let padding = String(repeating: "time=\"2026-11-16\" level=info msg=\"background log line\"\n", count: 1500)
+        let tail = "line-alpha\nline-beta\nline-gamma\n"
+        try Data((padding + tail).utf8).write(to: logURL)
+        XCTAssertEqual(CoreManager.tailLog(lines: 3, from: logURL), "line-alpha\nline-beta\nline-gamma")
+        XCTAssertEqual(CoreManager.tailLog(lines: 1, from: logURL), "line-gamma")
+    }
+
+    func testPortAndDelayTimeoutClamping() {
+        XCTAssertEqual(AppState.clampedPort(0), 1)
+        XCTAssertEqual(AppState.clampedPort(-80), 1)
+        XCTAssertEqual(AppState.clampedPort(7890), 7890)
+        XCTAssertEqual(AppState.clampedPort(99999), 65535)
+
+        XCTAssertEqual(AppState.clampedDelayTimeout(0), 100)
+        XCTAssertEqual(AppState.clampedDelayTimeout(5000), 5000)
+        XCTAssertEqual(AppState.clampedDelayTimeout(120_000), 60000)
+    }
 }

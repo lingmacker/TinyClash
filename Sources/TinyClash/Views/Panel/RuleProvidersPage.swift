@@ -288,8 +288,19 @@ struct RuleProviderEditorPage: View {
     @State private var payload: String
     @State private var interval: String
     @State private var policy = "DIRECT"
+    @State private var policyNames: [String] = AppState.builtinPolicies
     @State private var saving = false
     @State private var error: String?
+
+    private struct OptionsKey: Equatable {
+        var revision: Int
+        var groups: [String]
+        var nodeCount: Int
+    }
+
+    private func loadPolicyOptions() {
+        policyNames = state.policyNames
+    }
 
     init(original: RuleProviderDefinition? = nil, profileID: UUID, back: @escaping () -> Void) {
         self.original = original
@@ -328,8 +339,7 @@ struct RuleProviderEditorPage: View {
     }
 
     private var policyOptions: [String] {
-        let names = state.policyNames
-        return names.contains(policy) ? names : names + [policy]
+        policyNames.contains(policy) ? policyNames : policyNames + [policy]
     }
 
     private var canEdit: Bool {
@@ -412,6 +422,10 @@ struct RuleProviderEditorPage: View {
             }
         }
         .disabled(saving)
+        .onAppear(perform: loadPolicyOptions)
+        .onChange(of: OptionsKey(revision: state.profileRevision, groups: state.groupNames, nodeCount: state.proxies.count)) {
+            loadPolicyOptions()
+        }
         .onChange(of: provider.type) {
             if provider.type == "inline" { provider.format = "yaml" }
         }

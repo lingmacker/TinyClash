@@ -6,6 +6,8 @@ struct SettingsTab: View {
     @State private var editingBypass = false
     /// 正在进行的数据操作，进度显示在对应按钮的位置
     @State private var runningAction: String?
+    @FocusState private var dnsFieldFocused: Bool
+    @State private var appliedTunDNSServer = ""
 
     var body: some View {
         if editingBypass {
@@ -13,6 +15,12 @@ struct SettingsTab: View {
         } else {
             root
         }
+    }
+
+    private func applyDNSIfNeeded() {
+        guard state.tunDNSServer != appliedTunDNSServer else { return }
+        appliedTunDNSServer = state.tunDNSServer
+        Task { await state.tunSettingsChanged() }
     }
 
     private var root: some View {
@@ -50,7 +58,7 @@ struct SettingsTab: View {
                     }
                 }
 
-                PanelSection(title: "TUN", footer: "TUN 需以 root 运行内核：授权会把内核设为 root 所有并加 setuid 位。其余参数沿用配置文件的 tun 字段。TUN 开启时修改协议栈或 DNS 会立即重新应用；DNS 服务器输入后按回车应用。") {
+                PanelSection(title: "TUN") {
                     PanelRow(title: "内核授权") {
                         if state.isPrivileged {
                             Text("已授权").font(.callout).foregroundStyle(Theme.active)
@@ -78,12 +86,15 @@ struct SettingsTab: View {
                         PanelRow(title: "DNS 服务器", divider: false) {
                             TextField("223.5.5.5", text: $state.tunDNSServer)
                                 .panelField()
-                                // 输入完成（回车）后再应用，避免每个字符都改一次系统 DNS
-                                .onSubmit { Task { await state.tunSettingsChanged() } }
+                                .focused($dnsFieldFocused)
+                                // 输入完成（回车或失焦）后再应用，避免每个字符都改一次系统 DNS
+                                .onSubmit { applyDNSIfNeeded() }
                         }
                     }
                 }
-
+                .onAppear { appliedTunDNSServer = state.tunDNSServer }
+                .onDisappear { applyDNSIfNeeded() }
+                .onChange(of: dnsFieldFocused) { if !dnsFieldFocused { applyDNSIfNeeded() } }
                 .onChange(of: state.tunStack) { Task { await state.tunSettingsChanged() } }
                 .onChange(of: state.tunSetDNS) { Task { await state.tunSettingsChanged() } }
 
@@ -169,12 +180,13 @@ extension SettingsTab {
 private struct BypassPage: View {
     @Environment(AppState.self) private var state
     var back: () -> Void
+    @State private var draft = ""
 
     var body: some View {
-        @Bindable var state = state
         VStack(spacing: 0) {
             SubpageHeader(title: "绕过代理的地址", back: back) {
                 Button("应用") {
+                    state.bypassText = draft
                     Task {
                         if state.systemProxyEnabled { await state.setSystemProxy(true) }
                         back()
@@ -182,9 +194,11 @@ private struct BypassPage: View {
                 }
                 .buttonStyle(.borderless)
                 .toolbarAction(prominent: true)
+                .keyboardShortcut(.defaultAction)
+                .disabled(draft == state.bypassText)
             }
             VStack(alignment: .leading, spacing: Theme.Space.s) {
-                TextEditor(text: $state.bypassText)
+                TextEditor(text: $draft)
                     .font(.system(.callout, design: .monospaced))
                     .scrollContentBackground(.hidden)
                     .padding(8)
@@ -192,11 +206,12 @@ private struct BypassPage: View {
                 HStack {
                     Text("每行一个，支持通配符与 CIDR").font(.caption).foregroundStyle(.secondary)
                     Spacer()
-                    Button("恢复默认") { state.bypassText = SystemProxy.defaultBypass.joined(separator: "\n") }
+                    Button("恢复默认") { draft = SystemProxy.defaultBypass.joined(separator: "\n") }
                         .controlSize(.small)
                 }
             }
             .padding(14)
         }
+        .onAppear { draft = state.bypassText }
     }
 }

@@ -73,4 +73,16 @@ final class ThemeTests: XCTestCase {
             }
         }
     }
+
+    func testOutboundNodeAndNetworkTintsFollowSemanticRoles() {
+        XCTAssertEqual(Theme.outboundNodeTint("DIRECT"), Theme.active)
+        XCTAssertEqual(Theme.outboundNodeTint("REJECT"), Theme.failure)
+        XCTAssertEqual(Theme.outboundNodeTint("REJECT-DROP"), Theme.failure)
+        XCTAssertEqual(Theme.outboundNodeTint("香港 ISP 5"), Theme.accentForeground)
+        XCTAssertEqual(Theme.outboundNodeTint("未知策略"), .secondary)
+
+        XCTAssertEqual(Theme.networkTint("tcp"), Theme.download)
+        XCTAssertEqual(Theme.networkTint("UDP"), Theme.upload)
+        XCTAssertEqual(Theme.networkTint("icmp"), .secondary)
+    }
 }

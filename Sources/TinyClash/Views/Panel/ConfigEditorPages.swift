@@ -299,13 +299,14 @@ struct GroupEditorPage: View {
 
     private func loadCandidates() {
         let nodes = state.nodeNames
-        let groups = state.groupNames.filter { $0 != "GLOBAL" && $0 != original?.name }
+        let configuredGroups = state.configuredGroupNames
+        let groups = configuredGroups.filter { $0 != original?.name }
         var all = ["DIRECT", "REJECT"] + groups + nodes
         var seen = Set(all)
         // 保留配置中已有但当前未加载的成员，便于取消勾选
         all += (original?.proxies ?? []).filter { seen.insert($0).inserted }
         allCandidates = all
-        takenNames = Set(state.groupNames).union(AppState.builtinPolicies).union(nodes)
+        takenNames = Set(configuredGroups).union(["GLOBAL"]).union(AppState.builtinPolicies).union(nodes)
     }
 
     private var validationMessage: String? {
@@ -418,6 +419,7 @@ struct GroupEditorPage: View {
         }
         .disabled(saving)
         .onAppear(perform: loadCandidates)
+        .onChange(of: state.profileRevision) { loadCandidates() }
         .onChange(of: state.groupNames) { loadCandidates() }
         .onChange(of: state.proxies.count) { loadCandidates() }
     }

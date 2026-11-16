@@ -200,9 +200,19 @@ final class CoreManager: @unchecked Sendable {
         try? FileManager.default.removeItem(at: AppPaths.pidFile)
     }
 
-    static func tailLog(lines: Int = 12) -> String {
-        guard let text = try? String(contentsOf: AppPaths.coreLog, encoding: .utf8) else { return "" }
-        return text.split(separator: "\n").suffix(lines).joined(separator: "\n")
+    static func tailLog(lines: Int = 12, from url: URL = AppPaths.coreLog) -> String {
+        guard lines > 0, let handle = try? FileHandle(forReadingFrom: url) else { return "" }
+        defer { try? handle.close() }
+        let maxBytes: UInt64 = 32 * 1024
+        let end = (try? handle.seekToEnd()) ?? 0
+        let offset = end > maxBytes ? end - maxBytes : 0
+        try? handle.seek(toOffset: offset)
+        guard let data = try? handle.readToEnd(), !data.isEmpty else { return "" }
+        var text = String(decoding: data, as: UTF8.self)
+        if offset > 0, let firstNewline = text.firstIndex(of: "\n") {
+            text = String(text[text.index(after: firstNewline)...])
+        }
+        return text.split(whereSeparator: \.isNewline).suffix(lines).joined(separator: "\n")
     }
 
     /// Validate with mihomo -t. Timeouts and signals always fail; non-strict checks

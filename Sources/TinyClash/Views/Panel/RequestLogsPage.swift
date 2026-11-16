@@ -77,6 +77,12 @@ struct RequestLogsPage: View {
                                 Button("复制目标地址") { copy(entry.connection.metadata.displayHost) }
                                 Button("复制策略链") { copy(entry.route.joined(separator: " → ")) }
                                     .disabled(entry.route.isEmpty)
+                                if entry.isActive && isLive {
+                                    Divider()
+                                    Button("断开连接", role: .destructive) {
+                                        Task { await state.closeConnection(entry.id) }
+                                    }
+                                }
                             }
                         }
                     }
@@ -106,7 +112,22 @@ private struct RequestLogCard: View {
     var entry: RequestLogEntry
     var isLive: Bool
 
+    private var statusText: String {
+        entry.isActive ? (isLive ? "活跃" : "状态待确认") : "已结束"
+    }
+
+    private var statusColor: Color {
+        guard entry.isActive else { return .secondary }
+        return isLive ? Theme.active : Theme.warningText
+    }
+
+    private var ruleColor: Color {
+        guard !entry.connection.rule.isEmpty else { return .secondary }
+        return Theme.ruleTypeTint(ConfigOverlay.yamlRuleType(entry.connection.rule))
+    }
+
     var body: some View {
+        let hasDistinctNode = entry.node != nil && entry.node != entry.policy
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Text(entry.connection.metadata.displayHost)
@@ -116,24 +137,39 @@ private struct RequestLogCard: View {
                     .font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
             }
             HStack(spacing: 6) {
-                Tag(text: entry.connection.metadata.network.uppercased())
-                Text(entry.policy).foregroundStyle(Theme.policyTint(entry.policy))
+                Tag(text: entry.connection.metadata.network.uppercased(),
+                    tint: Theme.networkTint(entry.connection.metadata.network))
+                Text(entry.policy)
+                    .foregroundStyle(hasDistinctNode ? Theme.policyTint(entry.policy) : Theme.outboundNodeTint(entry.policy))
                     .font(.caption.weight(.medium)).lineLimit(1).truncationMode(.middle)
                 if let node = entry.node, node != entry.policy {
                     Image(systemName: "chevron.right").font(.system(size: 8, weight: .semibold))
                         .foregroundStyle(.tertiary)
-                    Text(node).font(.caption).foregroundStyle(.secondary)
+                    Text(node)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Theme.outboundNodeTint(node))
                         .lineLimit(1).truncationMode(.middle)
                 }
                 Spacer(minLength: 0)
             }
             HStack(spacing: 6) {
                 Text(entry.startedAt, format: .dateTime.hour().minute().second())
-                Text(entry.isActive ? (isLive ? "活跃" : "状态待确认") : "已结束")
+                    .font(Theme.numeral(10, weight: .regular))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(entry.isActive ? AnyShapeStyle(statusColor) : AnyShapeStyle(.tertiary))
+                        .frame(width: 5, height: 5)
+                    Text(statusText)
+                        .font(.caption2.weight(entry.isActive ? .medium : .regular))
+                        .foregroundStyle(statusColor)
+                }
                 Spacer(minLength: 4)
-                Text(entry.matchedRule).lineLimit(1).truncationMode(.middle)
+                Text(entry.matchedRule)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(ruleColor)
+                    .lineLimit(1).truncationMode(.middle)
             }
-            .font(.caption2).foregroundStyle(.secondary)
         }
         .foregroundStyle(.primary)
         .padding(.horizontal, 12)
@@ -142,17 +178,41 @@ private struct RequestLogCard: View {
         .card()
         .contentShape(Rectangle())
     }
-
 }
 
 private struct RequestLogDetailPage: View {
+    @Environment(AppState.self) private var state
     var entry: RequestLogEntry
     var isLive: Bool
     var back: () -> Void
 
+    private var statusText: String {
+        entry.isActive ? (isLive ? "活跃" : "等待下一次采样确认") : "已结束"
+    }
+
+    private var statusColor: Color {
+        guard entry.isActive else { return .secondary }
+        return isLive ? Theme.active : Theme.warningText
+    }
+
+    private var ruleColor: Color {
+        guard !entry.connection.rule.isEmpty else { return .secondary }
+        return Theme.ruleTypeTint(ConfigOverlay.yamlRuleType(entry.connection.rule))
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            SubpageHeader(title: "请求详情", back: back)
+            SubpageHeader(title: "请求详情", back: back) {
+                if entry.isActive && isLive {
+                    Button(role: .destructive) {
+                        Task { await state.closeConnection(entry.id) }
+                    } label: {
+                        Text("断开连接").foregroundStyle(Theme.failure)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("断开此连接")
+                }
+            }
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Space.m) {
                     PanelSection(title: "目标") {
@@ -161,21 +221,41 @@ private struct RequestLogDetailPage: View {
                             .frame(maxWidth: .infinity, alignment: .leading).padding(12)
                     }
                     PanelSection(title: "实际策略链", footer: "来自该连接的内核记录，不根据当前选中的节点推测。") {
-                        Text(entry.route.isEmpty ? "内核未提供策略链" : entry.route.joined(separator: " → "))
-                            .font(.callout.weight(.medium)).textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                        if entry.route.isEmpty {
+                            Text("内核未提供策略链")
+                                .font(.callout).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                        } else {
+                            routeChainView
+                                .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                        }
                     }
                     PanelSection(title: "命中规则") {
-                        Text(entry.matchedRule).font(.callout).textSelection(.enabled)
+                        Text(entry.matchedRule)
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(ruleColor)
+                            .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading).padding(12)
                     }
                     PanelSection(title: "连接信息") {
-                        valueRow("协议", entry.connection.metadata.network.uppercased())
+                        PanelRow(title: "协议") {
+                            Tag(text: entry.connection.metadata.network.uppercased(),
+                                tint: Theme.networkTint(entry.connection.metadata.network))
+                        }
                         valueRow("来源", entry.connection.metadata.type)
                         valueRow("进程", entry.connection.metadata.process.flatMap { $0.isEmpty ? nil : $0 } ?? "内核未提供")
                         valueRow("源地址", entry.connection.metadata.sourceIP)
                         valueRow("目标 IP", entry.connection.metadata.destinationIP.isEmpty ? "内核未提供" : entry.connection.metadata.destinationIP)
-                        valueRow("状态", entry.isActive ? (isLive ? "活跃" : "等待下一次采样确认") : "已结束", divider: false)
+                        PanelRow(title: "状态", divider: false) {
+                            HStack(spacing: 5) {
+                                Circle()
+                                    .fill(entry.isActive ? AnyShapeStyle(statusColor) : AnyShapeStyle(.tertiary))
+                                    .frame(width: 6, height: 6)
+                                Text(statusText)
+                                    .font(.caption.weight(entry.isActive ? .medium : .regular))
+                                    .foregroundStyle(statusColor)
+                            }
+                        }
                     }
                     PanelSection(title: "采样信息", footer: "结束时间为首次采样发现连接不再活跃的时间，流量为最后一次观测值。") {
                         timeRow("开始时间", entry.startedAt)
@@ -187,6 +267,19 @@ private struct RequestLogDetailPage: View {
                 .padding(14)
             }
         }
+    }
+
+    private var routeChainView: some View {
+        let lastIndex = entry.route.count - 1
+        var composed = Text("")
+        for (index, item) in entry.route.enumerated() {
+            if index > 0 {
+                composed = composed + Text(" → ").foregroundColor(.secondary)
+            }
+            let color = index == lastIndex ? Theme.outboundNodeTint(item) : Theme.policyTint(item)
+            composed = composed + Text(item).foregroundColor(color)
+        }
+        return composed.font(.callout.weight(.medium)).textSelection(.enabled)
     }
 
     private func valueRow(_ title: String, _ value: String, divider: Bool = true) -> some View {

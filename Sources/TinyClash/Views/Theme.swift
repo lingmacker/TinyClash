@@ -110,6 +110,25 @@ enum Theme {
         }
     }
 
+    /// 请求日志中最终出站节点的颜色：直连绿、拒绝红、代理节点用暖橙强调色，与前置策略组区分
+    static func outboundNodeTint(_ node: String) -> Color {
+        switch node.uppercased() {
+        case "DIRECT": return active
+        case "REJECT", "REJECT-DROP": return failure
+        case "COMPATIBLE", "PASS", "未知策略": return .secondary
+        default: return accentForeground
+        }
+    }
+
+    /// 传输层协议标签颜色：TCP 蓝、UDP 青
+    static func networkTint(_ network: String) -> Color {
+        switch network.lowercased() {
+        case "tcp": return download
+        case "udp": return upload
+        default: return .secondary
+        }
+    }
+
     /// 规则类型按匹配对象分色：域名蓝、IP 靛、规则集紫、兜底 MATCH 粉，其余中性
     static func ruleTypeTint(_ yamlType: String) -> Color {
         if yamlType.hasPrefix("DOMAIN") || yamlType == "GEOSITE" { return download }

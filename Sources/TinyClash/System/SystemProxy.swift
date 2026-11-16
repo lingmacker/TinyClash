@@ -52,15 +52,28 @@ enum SystemProxy {
     /// 按网络服务区分：哪些指向给定端口，哪些没有（新接入的网卡、被其他程序改掉的设置）
     static func pointingStatus(toPort port: Int) async -> (pointing: [String], other: [String]) {
         guard port > 0 else { return ([], []) }
+        let allServices = await services()
+        guard !allServices.isEmpty else { return ([], []) }
+        let states = await withTaskGroup(of: (Int, Bool).self) { group in
+            for (index, service) in allServices.enumerated() {
+                group.addTask {
+                    let out = await Shell.runAsync(tool, ["-getwebproxy", service]).output
+                    let isPointing = out.contains("Enabled: Yes")
+                        && out.contains("Server: 127.0.0.1")
+                        && out.contains("Port: \(port)\n")
+                    return (index, isPointing)
+                }
+            }
+            var results = Array(repeating: false, count: allServices.count)
+            for await (index, isPointing) in group {
+                results[index] = isPointing
+            }
+            return results
+        }
         var pointing: [String] = []
         var other: [String] = []
-        for s in await services() {
-            let out = await Shell.runAsync(tool, ["-getwebproxy", s]).output
-            if out.contains("Enabled: Yes") && out.contains("Server: 127.0.0.1") && out.contains("Port: \(port)\n") {
-                pointing.append(s)
-            } else {
-                other.append(s)
-            }
+        for (service, isPointing) in zip(allServices, states) {
+            if isPointing { pointing.append(service) } else { other.append(service) }
         }
         return (pointing, other)
     }
@@ -68,12 +81,22 @@ enum SystemProxy {
     // MARK: - DNS（TUN 模式下把系统 DNS 指向可被劫持的地址）
 
     static func currentDNS() async -> [String: [String]] {
-        var result: [String: [String]] = [:]
-        for s in await services() {
-            let out = await Shell.runAsync(tool, ["-getdnsservers", s]).output
-            result[s] = out.contains("There aren't any") ? [] : out.split(separator: "\n").map(String.init)
+        let allServices = await services()
+        guard !allServices.isEmpty else { return [:] }
+        return await withTaskGroup(of: (String, [String]).self) { group in
+            for service in allServices {
+                group.addTask {
+                    let out = await Shell.runAsync(tool, ["-getdnsservers", service]).output
+                    let servers = out.contains("There aren't any") ? [] : out.split(separator: "\n").map(String.init)
+                    return (service, servers)
+                }
+            }
+            var result: [String: [String]] = [:]
+            for await (service, servers) in group {
+                result[service] = servers
+            }
+            return result
         }
-        return result
     }
 
     static func setDNS(_ servers: [String: [String]]) async throws {

@@ -128,10 +128,16 @@ struct MenuPanel: View {
         .onAppear {
             clearFocus()
             visited.insert(tab)
+            state.activeTab = tab
+            state.isPanelOpen = true
             Task { await state.panelDidOpen() }
+        }
+        .onDisappear {
+            state.isPanelOpen = false
         }
         .onChange(of: tab) {
             visited.insert(tab)
+            state.activeTab = tab
             clearFocus()
             state.confirmation = nil
         }

@@ -11,15 +11,56 @@ struct ProxiesTab: View {
     }()
 
     @State private var route = Route.list
+    @State private var offlineGroups: [ProxyItem] = []
 
     private enum Route { case list, add, edit(CustomGroup), requests }
 
+    private struct OfflineKey: Equatable {
+        var running: Bool
+        var profileID: UUID?
+        var revision: Int
+    }
+
+    private var offlineKey: OfflineKey {
+        OfflineKey(running: state.isRunning, profileID: state.selectedProfileID, revision: state.profileRevision)
+    }
+
     private var canEditGroups: Bool { state.canEditSelectedProfile }
+
+    private var displayedGroups: [ProxyItem] {
+        state.isRunning ? state.visibleGroups : offlineGroups
+    }
+
+    private func resolvedGroup(_ name: String) -> ProxyItem? {
+        state.isRunning ? state.proxies[name] : offlineGroups.first { $0.name == name }
+    }
+
+    private func syncOfflineGroups() {
+        offlineGroups = state.isRunning ? [] : state.yamlGroupItems()
+        if let name = openGroup, resolvedGroup(name) == nil {
+            openGroup = nil
+        }
+    }
 
     var body: some View {
         content
-            .onAppear(perform: takeOpenGroupRequest)
+            .onAppear {
+                syncOfflineGroups()
+                takeOpenGroupRequest()
+            }
+            .onChange(of: offlineKey) { syncOfflineGroups() }
             .onChange(of: state.openGroupRequest) { takeOpenGroupRequest() }
+            .onChange(of: state.selectedProfileID) {
+                if state.openGroupRequest == nil {
+                    openGroup = nil
+                    route = .list
+                }
+            }
+            .onChange(of: state.profileRevision) {
+                if case .edit = route, !state.isEditingSelectedProfile {
+                    route = .list
+                }
+            }
     }
 
     @ViewBuilder private var content: some View {
@@ -34,14 +75,14 @@ struct ProxiesTab: View {
             }
         case .list:
             Group {
-                if let name = openGroup, let group = state.proxies[name] {
+                if let name = openGroup, let group = resolvedGroup(name) {
                     GroupDetail(group: group, canEdit: canEditGroups, edit: { edit(name) }) { openGroup = nil }
                 } else {
                     overview
                 }
             }
             .onChange(of: state.groupNames) {
-                if let name = openGroup, state.proxies[name] == nil {
+                if let name = openGroup, resolvedGroup(name) == nil {
                     openGroup = nil
                 }
             }
@@ -57,9 +98,10 @@ struct ProxiesTab: View {
     }
 
     private var overview: some View {
-        VStack(spacing: 0) {
+        let groups = displayedGroups
+        return VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Text("\(state.visibleGroups.count) 个策略组").foregroundStyle(.secondary)
+                Text("\(groups.count) 个策略组").foregroundStyle(.secondary)
                 Spacer(minLength: 4)
                 Button {
                     Task { await state.testGroups(state.visibleGroups.map(\.name)) }
@@ -85,30 +127,36 @@ struct ProxiesTab: View {
             .padding(14)
             Divider()
             if state.coreState == .starting {
-                if state.currentMode != .direct && !state.visibleGroups.isEmpty {
-                    groupList
+                if state.currentMode != .direct && !groups.isEmpty {
+                    groupList(groups)
                 } else {
                     LoadingHint(text: "内核启动中…")
                 }
-            } else if !state.isRunning {
-                EmptyHint(text: state.selectedProfile == nil ? "请先在「配置」页添加并选择配置" : "内核未运行\n仍可添加策略组并写入当前配置")
+            } else if state.selectedProfile == nil {
+                EmptyHint(text: "请先在「配置」页添加并选择配置")
                     .multilineTextAlignment(.center)
-            } else if state.currentMode == .direct {
+            } else if state.isRunning && state.currentMode == .direct {
                 EmptyHint(text: "直连模式下所有流量不经过代理\n仍可添加策略组并写入当前配置")
                     .multilineTextAlignment(.center)
-            } else if state.visibleGroups.isEmpty {
+            } else if groups.isEmpty {
                 EmptyHint(text: "当前没有策略组\n点击「添加策略组」创建一个")
                     .multilineTextAlignment(.center)
             } else {
-                groupList
+                groupList(groups)
             }
         }
     }
 
-    private var groupList: some View {
+    private func groupList(_ groups: [ProxyItem]) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Space.s) {
-                ForEach(state.visibleGroups) { group in
+                if !state.isRunning {
+                    Text("内核未运行；当前显示配置文件中的策略组，可直接添加、编辑或删除。")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 4)
+                }
+                ForEach(groups) { group in
                     Button { openGroup = group.name } label: {
                         GroupCard(group: group).hoverHighlight()
                     }
@@ -158,14 +206,16 @@ private struct GroupCard: View {
                 Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
             }
             HStack(spacing: 6) {
+                let isOffline = !state.isRunning
                 let isPending = state.pendingNewGroupNames.contains(group.name)
                 // 当前选择是子分组时一路解析到最终节点，与首页出站路径一致
                 let chain = Array(state.resolvedChain(from: group).dropFirst())
-                Text(isPending ? "待重启生效" : (chain.isEmpty ? "—" : chain.joined(separator: " › ")))
+                let routeText = isOffline ? "内核未运行" : (isPending ? "待重启生效" : (chain.isEmpty ? "—" : chain.joined(separator: " › ")))
+                Text(routeText)
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
                     .help(chain.joined(separator: " › "))
                 Spacer(minLength: 4)
-                if !isPending, let last = chain.last { LatencyLabel(ms: state.delay(of: last)) }
+                if !isOffline && !isPending, let last = chain.last { LatencyLabel(ms: state.delay(of: last)) }
             }
             HealthStrip(members: group.all ?? [])
         }
@@ -235,8 +285,18 @@ private struct GroupDetail: View {
         return filtered.enumerated().sorted { (key($0.element), $0.offset) < (key($1.element), $1.offset) }.map(\.element)
     }
 
+    private func nodeDetail(_ item: ProxyItem?, showsProtocol: Bool) -> String? {
+        guard let item else { return nil }
+        if item.isGroup { return "分组 › \(item.now ?? "—")" }
+        return showsProtocol ? (item.udp == true ? "\(item.type) · UDP" : item.type) : nil
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
+        let isOffline = !state.isRunning
+        let isPending = isOffline || state.pendingNewGroupNames.contains(group.name)
+        let canSelect = state.isRunning && group.isSelectable && !isPending
+        let showProto = showsProtocol
+        return VStack(spacing: 0) {
             SubpageHeader(title: group.name, back: back) {
                 // 只保留两个常用操作；编辑、删除这类低频操作收进 ⋯ 菜单，删除不再紧挨着其他按钮
                 HStack(spacing: 10) {
@@ -245,7 +305,7 @@ private struct GroupDetail: View {
                         .buttonStyle(.borderless)
                         .toolbarAction(prominent: true)
                         .help("测试本组全部节点的延迟")
-                        .disabled(testing || state.pendingNewGroupNames.contains(group.name))
+                        .disabled(!state.isRunning || testing || state.pendingNewGroupNames.contains(group.name))
                     Menu {
                         Toggle("按延迟排序", isOn: $sortByDelay)
                         if group.name != "GLOBAL" {
@@ -275,7 +335,13 @@ private struct GroupDetail: View {
                     .padding(.horizontal, 14)
                     .padding(.bottom, 8)
             }
-            if state.pendingNewGroupNames.contains(group.name) {
+            if isOffline {
+                Text("内核未运行，启动后可切换节点与测速；仍可编辑或删除此策略组")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 6)
+            } else if state.pendingNewGroupNames.contains(group.name) {
                 Text("新增策略组尚未加载到内核，点击顶部「需重启生效」重启后即可切换节点与测速")
                     .font(.caption).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -294,7 +360,27 @@ private struct GroupDetail: View {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: Theme.Space.s),
                                     GridItem(.flexible(), spacing: Theme.Space.s)],
                           spacing: Theme.Space.s) {
-                    ForEach(members, id: \.self) { NodeCell(name: $0, group: group, showsProtocol: showsProtocol) }
+                    ForEach(members, id: \.self) { name in
+                        NodeCell(
+                            name: name,
+                            selected: !isPending && group.now == name,
+                            canSelect: canSelect,
+                            canTest: state.isRunning,
+                            detail: nodeDetail(state.proxies[name], showsProtocol: showProto),
+                            delay: state.delay(of: name),
+                            isTesting: state.testingProxies.contains(name),
+                            onSelect: {
+                                guard canSelect, group.now != name else { return }
+                                Task { await state.select(group: group.name, proxy: name) }
+                            },
+                            onTest: {
+                                guard state.isRunning else { return }
+                                Task { await state.testProxy(name) }
+                            },
+                            onCopy: { state.copy(name) }
+                        )
+                        .equatable()
+                    }
                 }
                 .padding(14)
             }
@@ -302,35 +388,49 @@ private struct GroupDetail: View {
     }
 }
 
-/// 节点卡片：整张卡片是选择按钮；右下角的延迟读数是独立的测速按钮
-private struct NodeCell: View {
-    @Environment(AppState.self) private var state
+/// 节点卡片：整张卡片是选择按钮；右下角的延迟读数是独立的测速按钮。
+/// 仅接收纯值参数并实现 Equatable，避免单节点测速完成时全表重绘。
+private struct NodeCell: View, Equatable {
     let name: String
-    let group: ProxyItem
-    var showsProtocol = true
+    let selected: Bool
+    let canSelect: Bool
+    let canTest: Bool
+    let detail: String?
+    let delay: Int?
+    let isTesting: Bool
+    var onSelect: () -> Void
+    var onTest: () -> Void
+    var onCopy: () -> Void
+
+    static func == (lhs: NodeCell, rhs: NodeCell) -> Bool {
+        lhs.name == rhs.name
+            && lhs.selected == rhs.selected
+            && lhs.canSelect == rhs.canSelect
+            && lhs.canTest == rhs.canTest
+            && lhs.detail == rhs.detail
+            && lhs.delay == rhs.delay
+            && lhs.isTesting == rhs.isTesting
+    }
 
     var body: some View {
-        let isPending = state.pendingNewGroupNames.contains(group.name)
-        let canSelect = group.isSelectable && !isPending
-        let selected = !isPending && group.now == name
         ZStack(alignment: .bottomTrailing) {
-            Button(action: choose) {
-                card(selected: selected, detail: detail(state.proxies[name]))
+            Button(action: onSelect) {
+                card(selected: selected, detail: detail)
             }
             .buttonStyle(PressableStyle())
             .disabled(!canSelect)
             .accessibilityLabel(name)
-            .accessibilityValue(Theme.latencyText(state.delay(of: name)))
+            .accessibilityValue(Theme.latencyText(delay))
             .accessibilityAddTraits(selected ? .isSelected : [])
-            .accessibilityAction(named: "测试延迟") { Task { await state.testProxy(name) } }
+            .accessibilityAction(named: "测试延迟", onTest)
             latency
                 .padding(.trailing, 10)
                 .padding(.bottom, 8)
         }
         .help(name)
         .contextMenu {
-            Button("测试延迟") { Task { await state.testProxy(name) } }
-            Button("复制节点名") { state.copy(name) }
+            Button("测试延迟", action: onTest).disabled(!canTest)
+            Button("复制节点名", action: onCopy)
         }
     }
 
@@ -364,29 +464,18 @@ private struct NodeCell: View {
     }
 
     @ViewBuilder private var latency: some View {
-        if state.testingProxies.contains(name) {
+        if isTesting {
             ProgressView().controlSize(.mini)
         } else {
-            Button { Task { await state.testProxy(name) } } label: {
-                LatencyLabel(ms: state.delay(of: name), placeholder: "测速")
+            Button(action: onTest) {
+                LatencyLabel(ms: delay, placeholder: "测速")
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(!canTest)
             .help("测试延迟")
             .accessibilityLabel("测试「\(name)」的延迟")
         }
-    }
-
-    private func choose() {
-        let selected = group.now == name
-        guard group.isSelectable, !state.pendingNewGroupNames.contains(group.name), !selected else { return }
-        Task { await state.select(group: group.name, proxy: name) }
-    }
-
-    private func detail(_ item: ProxyItem?) -> String? {
-        guard let item else { return nil }
-        if item.isGroup { return "分组 › \(item.now ?? "—")" }
-        return showsProtocol ? (item.udp == true ? "\(item.type) · UDP" : item.type) : nil
     }
 }
 

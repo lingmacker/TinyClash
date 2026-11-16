@@ -169,4 +169,13 @@ final class RequestLogTests: XCTestCase {
         XCTAssertEqual(log.entries[0].connection.metadata.displayHost, "example.com:443")
         XCTAssertNotNil(log.entries[0].connection.startDate)
     }
+
+    func testMarkClosedMarksActiveConnectionEnded() {
+        var log = RequestLog()
+        log.ingest([connection("c1")], at: now)
+        XCTAssertTrue(log.entries[0].isActive)
+        log.markClosed("c1", at: now.addingTimeInterval(2))
+        XCTAssertFalse(log.entries[0].isActive)
+        XCTAssertEqual(log.entries[0].endedAt, now.addingTimeInterval(2))
+    }
 }

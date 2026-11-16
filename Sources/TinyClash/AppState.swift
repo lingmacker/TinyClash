@@ -124,16 +124,61 @@ final class AppState {
     var tunSetDNS: Bool { didSet { defaults.set(tunSetDNS, forKey: "tunSetDNS") } }
     var tunDNSServer: String { didSet { defaults.set(tunDNSServer, forKey: "tunDNSServer") } }
     var bypassText: String { didSet { defaults.set(bypassText, forKey: "bypass") } }
-    var fallbackPort: Int { didSet { defaults.set(fallbackPort, forKey: "fallbackPort") } }
+    var fallbackPort: Int {
+        didSet {
+            let clamped = Self.clampedPort(fallbackPort)
+            if fallbackPort != clamped { fallbackPort = clamped; return }
+            defaults.set(fallbackPort, forKey: "fallbackPort")
+        }
+    }
     var delayTestURL: String { didSet { defaults.set(delayTestURL, forKey: "delayTestURL") } }
-    var delayTimeout: Int { didSet { defaults.set(delayTimeout, forKey: "delayTimeout") } }
-    var showSpeedInMenuBar: Bool { didSet { defaults.set(showSpeedInMenuBar, forKey: "showSpeed") } }
+    var delayTimeout: Int {
+        didSet {
+            let clamped = Self.clampedDelayTimeout(delayTimeout)
+            if delayTimeout != clamped { delayTimeout = clamped; return }
+            defaults.set(delayTimeout, forKey: "delayTimeout")
+        }
+    }
+    var showSpeedInMenuBar: Bool {
+        didSet {
+            defaults.set(showSpeedInMenuBar, forKey: "showSpeed")
+            if showSpeedInMenuBar {
+                if upSpeed != latestUpSpeed { upSpeed = latestUpSpeed }
+                if downSpeed != latestDownSpeed { downSpeed = latestDownSpeed }
+            }
+        }
+    }
     var closeConnectionsOnSwitch: Bool { didSet { defaults.set(closeConnectionsOnSwitch, forKey: "closeConnOnSwitch") } }
     var subscriptionViaProxy: Bool { didSet { defaults.set(subscriptionViaProxy, forKey: "subViaProxy") } }
     var globalHotKeysEnabled: Bool {
         didSet {
             defaults.set(globalHotKeysEnabled, forKey: "globalHotKeys")
             updateGlobalHotKeys()
+        }
+    }
+
+    static func clampedPort(_ port: Int) -> Int {
+        min(max(port, 1), 65535)
+    }
+
+    static func clampedDelayTimeout(_ timeout: Int) -> Int {
+        min(max(timeout, 100), 60000)
+    }
+
+    /// 面板当前是否打开可见；默认 true 以兼容预览与首次渲染，关闭面板时置为 false
+    var isPanelOpen = true {
+        didSet {
+            if isPanelOpen && !oldValue {
+                syncBufferedMetrics()
+            }
+        }
+    }
+    /// 当前选中的标签页；不在首页或面板收起时跳过每秒的图表与内存重绘
+    var activeTab: PanelTab = .home {
+        didSet {
+            if activeTab == .home && oldValue != .home {
+                syncBufferedMetrics()
+            }
         }
     }
 
@@ -144,6 +189,10 @@ final class AppState {
     private var streams: [StreamClient] = []
     private var connectionStreamID = UUID()
     private var trafficCounter = 0
+    private var rawTrafficHistory: [TrafficPoint] = []
+    private var latestUpSpeed: Int64 = 0
+    private var latestDownSpeed: Int64 = 0
+    private var latestMemory: Int64 = 0
     private var autoUpdateTimer: Timer?
     private var proxyRefreshTask: Task<Void, Never>?
     private var autoUpdateFailures: [UUID: (count: Int, at: Date)] = [:]
@@ -174,9 +223,9 @@ final class AppState {
         tunSetDNS = d.object(forKey: "tunSetDNS") as? Bool ?? true
         tunDNSServer = d.string(forKey: "tunDNSServer") ?? "223.5.5.5"
         bypassText = d.string(forKey: "bypass") ?? SystemProxy.defaultBypass.joined(separator: "\n")
-        fallbackPort = d.object(forKey: "fallbackPort") as? Int ?? 7890
+        fallbackPort = Self.clampedPort(d.object(forKey: "fallbackPort") as? Int ?? 7890)
         delayTestURL = d.string(forKey: "delayTestURL") ?? "https://www.gstatic.com/generate_204"
-        delayTimeout = d.object(forKey: "delayTimeout") as? Int ?? 5000
+        delayTimeout = Self.clampedDelayTimeout(d.object(forKey: "delayTimeout") as? Int ?? 5000)
         showSpeedInMenuBar = d.object(forKey: "showSpeed") as? Bool ?? true
         closeConnectionsOnSwitch = d.object(forKey: "closeConnOnSwitch") as? Bool ?? true
         subscriptionViaProxy = d.bool(forKey: "subViaProxy")
@@ -367,6 +416,7 @@ final class AppState {
     }
 
     func restartCore() async {
+        guard !restarting else { return }
         restarting = true
         defer { restarting = false }
         crashRestartTask?.cancel()
@@ -411,6 +461,10 @@ final class AppState {
         connections = []
         upSpeed = 0
         downSpeed = 0
+        memory = 0
+        latestUpSpeed = 0
+        latestDownSpeed = 0
+        latestMemory = 0
     }
 
     private static let crashRestartDelays: [UInt64] = [1, 5, 30]
@@ -684,11 +738,24 @@ final class AppState {
         return ordered + rest
     }
 
-    /// 规则可指向的策略：内置策略、分组、节点
-    var policyNames: [String] {
+    /// 当前配置中的策略组名称（不含 GLOBAL）：内核运行且未修改配置时取自内核，否则从 YAML 读取
+    var configuredGroupNames: [String] {
         let groups = isRunning && !needsCoreRestart
             ? groupNames : selectedProfile.map { store.groupSummaries(in: $0).map(\.name) } ?? []
-        return Self.builtinPolicies + groups.filter { $0 != "GLOBAL" } + nodeNames
+        return groups.filter { $0 != "GLOBAL" }
+    }
+
+    /// 规则可指向的策略：内置策略、分组、节点
+    var policyNames: [String] {
+        Self.builtinPolicies + configuredGroupNames + nodeNames
+    }
+
+    /// 内核未运行时从当前配置 YAML 读取的策略组概览，便于停核时查看、编辑或删除策略组
+    func yamlGroupItems() -> [ProxyItem] {
+        guard let profile = selectedProfile else { return [] }
+        return store.groupSummaries(in: profile).map { summary in
+            ProxyItem(name: summary.name, type: summary.apiType, now: nil, all: summary.proxies)
+        }
     }
 
     /// 主策略组：全局模式为 GLOBAL，规则模式为配置中的第一个分组
@@ -729,13 +796,23 @@ final class AppState {
         await refreshProxies()
     }
 
-    /// 多个策略组同时测速：所有组先显示测速中，节点探测统一经过并发上限排队
+    /// 多个策略组同时测速：所有组先显示测速中，最多 4 个策略组并发，节点探测统一经过并发上限排队
+    static let groupTestConcurrency = 4
+    private let groupTestLimiter = AsyncLimiter(limit: AppState.groupTestConcurrency)
+
     func testGroups(_ names: [String]) async {
         let names = names.filter { api != nil && !testingGroups.contains($0) && !pendingNewGroupNames.contains($0) }
         guard !names.isEmpty else { return }
         testingGroups.formUnion(names)
+        let limiter = groupTestLimiter
         await withTaskGroup(of: Void.self) { group in
-            for name in names { group.addTask { await self.runGroupTest(name) } }
+            for name in names {
+                group.addTask {
+                    await limiter.acquire()
+                    await self.runGroupTest(name)
+                    await limiter.release()
+                }
+            }
         }
         await refreshProxies()
     }
@@ -743,6 +820,7 @@ final class AppState {
     func testProxy(_ name: String) async {
         guard api != nil, !testingProxies.contains(name) else { return }
         await probeDelay(name, url: delayTestURL).value
+        flushStagedDelays()
         await refreshProxies()
     }
 
@@ -753,6 +831,10 @@ final class AppState {
     private var delayProbes: [String: Task<Void, Never>] = [:]
     /// 已测完、但还没随 refreshProxies 拿到内核数据的延迟，让结果逐个显示
     private var freshDelays: [String: Int] = [:]
+    /// 批量测速期间缓冲已完成的节点结果，每 80ms 合并写回一次 @Observable 属性，避免 O(N^2) 重绘
+    private var stagedDelays: [String: Int] = [:]
+    private var stagedFinishedProxies: Set<String> = []
+    private var delayFlushTask: Task<Void, Never>?
     /// 来自 proxy-providers 的节点 → 所属 provider，测速要走 provider 的接口
     private var nodeProviders: [String: String] = [:]
 
@@ -760,26 +842,58 @@ final class AppState {
     private func runGroupTest(_ group: String) async {
         let url = proxies[group]?.testUrl.flatMap { $0.isEmpty ? nil : $0 } ?? delayTestURL
         var seen = Set<String>()
-        let probes = (proxies[group]?.all ?? []).filter { seen.insert($0).inserted }.map { probeDelay($0, url: url) }
+        let members = (proxies[group]?.all ?? []).filter { seen.insert($0).inserted }
+        let unprobed = members.filter { delayProbes[$0] == nil }
+        if !unprobed.isEmpty {
+            testingProxies.formUnion(unprobed)
+        }
+        let probes = members.map { probeDelay($0, url: url, markTesting: false) }
         for probe in probes { await probe.value }
+        flushStagedDelays()
         testingGroups.remove(group)
     }
 
-    private func probeDelay(_ name: String, url: String) -> Task<Void, Never> {
+    private func probeDelay(_ name: String, url: String, markTesting: Bool = true) -> Task<Void, Never> {
         if let probe = delayProbes[name] { return probe }
-        testingProxies.insert(name)
+        if markTesting { testingProxies.insert(name) }
         let api = api, provider = nodeProviders[name], timeout = delayTimeout, limiter = delayLimiter
         let probe = Task {
             await limiter.acquire()
             // 超时或节点不可用时内核返回错误，按超时显示
             let delay = (try? await api?.proxyDelay(name: name, provider: provider, url: url, timeout: timeout)) ?? 0
             await limiter.release()
-            freshDelays[name] = delay
-            testingProxies.remove(name)
+            stageDelayResult(name: name, delay: delay)
             delayProbes[name] = nil
         }
         delayProbes[name] = probe
         return probe
+    }
+
+    private func stageDelayResult(name: String, delay: Int) {
+        stagedDelays[name] = delay
+        stagedFinishedProxies.insert(name)
+        guard delayFlushTask == nil else { return }
+        delayFlushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            self?.flushStagedDelays()
+        }
+    }
+
+    private func flushStagedDelays() {
+        delayFlushTask?.cancel()
+        delayFlushTask = nil
+        if !stagedDelays.isEmpty {
+            var updated = freshDelays
+            for (k, v) in stagedDelays { updated[k] = v }
+            stagedDelays.removeAll()
+            freshDelays = updated
+        }
+        if !stagedFinishedProxies.isEmpty {
+            var updated = testingProxies
+            updated.subtract(stagedFinishedProxies)
+            stagedFinishedProxies.removeAll()
+            testingProxies = updated
+        }
     }
 
     // MARK: - Streams
@@ -787,7 +901,9 @@ final class AppState {
     private func startStreams() {
         guard let api else { return }
         stopStreams()
-        trafficHistory = (0..<60).map { TrafficPoint(id: $0 - 60, up: 0, down: 0) }
+        let initialHistory = (0..<60).map { TrafficPoint(id: $0 - 60, up: 0, down: 0) }
+        rawTrafficHistory = initialHistory
+        trafficHistory = initialHistory
 
         let traffic = StreamClient(url: api.webSocketURL("/traffic"), session: api.session) { data in
             guard let s = try? JSONDecoder().decode(TrafficSample.self, from: data) else { return }
@@ -795,7 +911,13 @@ final class AppState {
         }
         let memory = StreamClient(url: api.webSocketURL("/memory"), session: api.session) { data in
             guard let m = try? JSONDecoder().decode(MemorySample.self, from: data) else { return }
-            Task { @MainActor in AppState.shared.memory = m.inuse }
+            Task { @MainActor in
+                let s = AppState.shared
+                s.latestMemory = m.inuse
+                if s.isPanelOpen && s.activeTab == .home && s.memory != m.inuse {
+                    s.memory = m.inuse
+                }
+            }
         }
         let streamID = connectionStreamID
         let conns = StreamClient(url: api.webSocketURL("/connections", query: "interval=1000"), session: api.session, onFailure: { message in
@@ -806,6 +928,7 @@ final class AppState {
             }
         }) { data in
             let snapshot = try? JSONDecoder().decode(ConnectionsSnapshot.self, from: data)
+            let sortedConnections = (snapshot?.connections ?? []).sorted { $0.start > $1.start }
             Task { @MainActor in
                 let s = AppState.shared
                 guard s.connectionStreamID == streamID, s.api === api, s.isRunning else { return }
@@ -813,12 +936,12 @@ final class AppState {
                     s.connectionStreamError = "无法解析内核连接数据，请检查内核版本。"
                     return
                 }
-                s.connectionStreamError = nil
-                s.hasConnectionSnapshot = true
-                s.uploadTotal = snap.uploadTotal
-                s.downloadTotal = snap.downloadTotal
-                s.connections = (snap.connections ?? []).sorted { $0.start > $1.start }
-                s.requestLog.ingest(s.connections)
+                if s.connectionStreamError != nil { s.connectionStreamError = nil }
+                if !s.hasConnectionSnapshot { s.hasConnectionSnapshot = true }
+                if s.uploadTotal != snap.uploadTotal { s.uploadTotal = snap.uploadTotal }
+                if s.downloadTotal != snap.downloadTotal { s.downloadTotal = snap.downloadTotal }
+                s.connections = sortedConnections
+                s.requestLog.ingest(sortedConnections)
             }
         }
         streams = [traffic, memory, conns]
@@ -837,6 +960,18 @@ final class AppState {
         requestLog.clear()
     }
 
+    func closeConnection(_ id: String) async {
+        guard let api else { return }
+        do {
+            try await api.closeConnection(id)
+            requestLog.markClosed(id)
+            connections.removeAll { $0.id == id }
+            showToast("已断开连接")
+        } catch {
+            errorMessage = "断开连接失败：\(error.localizedDescription)"
+        }
+    }
+
     private func stopStreams() {
         connectionStreamID = UUID()
         hasConnectionSnapshot = false
@@ -848,12 +983,28 @@ final class AppState {
         proxyRefreshTask = nil
     }
 
+    private func syncBufferedMetrics() {
+        if upSpeed != latestUpSpeed { upSpeed = latestUpSpeed }
+        if downSpeed != latestDownSpeed { downSpeed = latestDownSpeed }
+        if memory != latestMemory { memory = latestMemory }
+        trafficHistory = rawTrafficHistory
+    }
+
     private func pushTraffic(_ s: TrafficSample) {
-        upSpeed = s.up
-        downSpeed = s.down
+        latestUpSpeed = s.up
+        latestDownSpeed = s.down
         trafficCounter += 1
-        trafficHistory.append(TrafficPoint(id: trafficCounter, up: s.up, down: s.down))
-        if trafficHistory.count > 60 { trafficHistory.removeFirst(trafficHistory.count - 60) }
+        rawTrafficHistory.append(TrafficPoint(id: trafficCounter, up: s.up, down: s.down))
+        if rawTrafficHistory.count > 60 { rawTrafficHistory.removeFirst(rawTrafficHistory.count - 60) }
+
+        let homeVisible = isPanelOpen && activeTab == .home
+        if homeVisible || showSpeedInMenuBar {
+            if upSpeed != s.up { upSpeed = s.up }
+            if downSpeed != s.down { downSpeed = s.down }
+        }
+        if homeVisible {
+            trafficHistory = rawTrafficHistory
+        }
     }
 
     // MARK: - Profiles

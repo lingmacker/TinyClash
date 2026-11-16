@@ -21,12 +21,13 @@ struct RuleSetContentsSection: View {
     }
 
     var body: some View {
+        let filtered = contents.map { filteredEntries($0.entries) } ?? []
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Text("规则集内容").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 Spacer()
                 if let contents, let definition {
-                    Text(summary(contents, definition: definition))
+                    Text(summary(contents, filteredCount: filtered.count, definition: definition))
                         .font(.caption2).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle)
                         .help(contents.file?.path ?? "内联规则集")
@@ -42,7 +43,7 @@ struct RuleSetContentsSection: View {
                 }
                 .padding(.horizontal, 4)
             } else if let contents, let definition {
-                entryList(contents, definition: definition)
+                entryList(contents, entries: filtered, definition: definition)
             } else {
                 ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(.vertical, 8)
             }
@@ -51,8 +52,7 @@ struct RuleSetContentsSection: View {
     }
 
     @ViewBuilder
-    private func entryList(_ contents: RuleSetContents, definition: RuleProviderDefinition) -> some View {
-        let entries = filteredEntries(contents.entries)
+    private func entryList(_ contents: RuleSetContents, entries: [String], definition: RuleProviderDefinition) -> some View {
         let classical = definition.behavior == "classical"
         if contents.entries.count > 1 {
             TextField("搜索规则集", text: $search)
@@ -65,7 +65,8 @@ struct RuleSetContentsSection: View {
                 .padding(.horizontal, 4)
         } else {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(entries.enumerated()), id: \.offset) { index, entry in
+                ForEach(entries.indices, id: \.self) { index in
+                    let entry = entries[index]
                     RuleSetEntryRow(entry: entry, classical: classical, divider: index < entries.count - 1)
                         .contextMenu {
                             Button("复制规则") { state.copy(entry) }
@@ -78,9 +79,10 @@ struct RuleSetContentsSection: View {
         }
     }
 
-    private func summary(_ contents: RuleSetContents, definition: RuleProviderDefinition) -> String {
-        let count = search.isEmpty ? "\(contents.entries.count) 条"
-            : "\(filteredEntries(contents.entries).count) / \(contents.entries.count) 条"
+    private func summary(_ contents: RuleSetContents, filteredCount: Int, definition: RuleProviderDefinition) -> String {
+        let count = search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "\(contents.entries.count) 条"
+            : "\(filteredCount) / \(contents.entries.count) 条"
         var parts = [count, definition.behavior]
         if definition.type != "inline" { parts.append(definition.format) }
         if let modified = contents.modified { parts.append("更新于 \(Format.updateAge(modified))") }

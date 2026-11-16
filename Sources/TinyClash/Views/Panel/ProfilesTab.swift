@@ -20,6 +20,11 @@ struct ProfilesTab: View {
         }
         .onAppear(perform: takeAddRequest)
         .onChange(of: state.addSubscriptionRequest) { takeAddRequest() }
+        .onChange(of: state.profiles) {
+            if let p = editing, !state.profiles.contains(where: { $0.id == p.id }) {
+                editing = nil
+            }
+        }
     }
 
     private func takeAddRequest() {
@@ -313,7 +318,8 @@ private struct EditProfilePage: View {
                 .buttonStyle(.borderless)
                 .toolbarAction(prominent: true)
                 .keyboardShortcut(.defaultAction)
-                .disabled(profile.name.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(profile.name.trimmingCharacters(in: .whitespaces).isEmpty
+                          || (profile.kind == .remote && (profile.url ?? "").trimmingCharacters(in: .whitespaces).isEmpty))
             }
             VStack(alignment: .leading, spacing: Theme.Space.m) {
                 PanelSection {

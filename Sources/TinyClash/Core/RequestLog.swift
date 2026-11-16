@@ -1,21 +1,42 @@
 import Foundation
 
 struct RequestLogEntry: Identifiable {
-    var connection: Connection
+    var connection: Connection {
+        didSet {
+            if oldValue.chains != connection.chains {
+                route = connection.chains.reversed()
+            }
+            if oldValue.rule != connection.rule || oldValue.rulePayload != connection.rulePayload {
+                matchedRule = Self.formatMatchedRule(rule: connection.rule, payload: connection.rulePayload)
+            }
+        }
+    }
     var observedAt: Date
     var lastSeenAt: Date
     var endedAt: Date?
     let startedAt: Date
+    // mihomo reports chains from the outbound node back to the matching policy.
+    private(set) var route: [String]
+    private(set) var matchedRule: String
+
+    init(connection: Connection, observedAt: Date, lastSeenAt: Date, endedAt: Date? = nil, startedAt: Date) {
+        self.connection = connection
+        self.observedAt = observedAt
+        self.lastSeenAt = lastSeenAt
+        self.endedAt = endedAt
+        self.startedAt = startedAt
+        self.route = connection.chains.reversed()
+        self.matchedRule = Self.formatMatchedRule(rule: connection.rule, payload: connection.rulePayload)
+    }
 
     var id: String { connection.id }
     var isActive: Bool { endedAt == nil }
-    // mihomo reports chains from the outbound node back to the matching policy.
-    var route: [String] { connection.chains.reversed() }
     var policy: String { route.first ?? "未知策略" }
     var node: String? { route.last }
-    var matchedRule: String {
-        let type = connection.rule.isEmpty ? "未知规则" : connection.rule
-        return connection.rulePayload.isEmpty ? type : "\(type) (\(connection.rulePayload))"
+
+    private static func formatMatchedRule(rule: String, payload: String) -> String {
+        let type = rule.isEmpty ? "未知规则" : rule
+        return payload.isEmpty ? type : "\(type) (\(payload))"
     }
 
     func matches(_ query: String) -> Bool {
@@ -49,16 +70,26 @@ struct RequestLog {
                 entries[index].endedAt = now
             }
         }
+        var addedNew = false
         for (id, connection) in current where !knownIDs.contains(id) && !activeIDs.contains(id) {
             entries.append(RequestLogEntry(connection: connection, observedAt: now, lastSeenAt: now,
                                            startedAt: connection.startDate ?? now))
+            addedNew = true
         }
         activeIDs = Set(current.keys)
-        entries.sort {
-            if $0.startedAt != $1.startedAt { return $0.startedAt > $1.startedAt }
-            return $0.id < $1.id
+        if addedNew {
+            entries.sort {
+                if $0.startedAt != $1.startedAt { return $0.startedAt > $1.startedAt }
+                return $0.id < $1.id
+            }
+            if entries.count > limit { entries.removeLast(entries.count - limit) }
         }
-        if entries.count > limit { entries.removeLast(entries.count - limit) }
+    }
+
+    mutating func markClosed(_ id: String, at now: Date = Date()) {
+        if let index = entries.firstIndex(where: { $0.id == id }), entries[index].isActive {
+            entries[index].endedAt = now
+        }
     }
 
     mutating func finish(at now: Date = Date()) {

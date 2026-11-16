@@ -350,9 +350,17 @@ final class ProfileStore {
     /// 更新配置信息并在名称变化时同步重命名磁盘上的 YAML（及 legacy runtime YAML）
     func saveProfile(_ profile: Profile, in profiles: [Profile]) throws -> [Profile] {
         guard let i = profiles.firstIndex(where: { $0.id == profile.id }) else { return profiles }
-        var updatedProfile = profile
+        // 基于当前最新记录只覆盖表单可编辑字段，避免后台自动更新期间编辑页持有的旧快照冲掉最新订阅信息与哈希
+        var updatedProfile = profiles[i]
         let trimmedName = profile.name.trimmingCharacters(in: .whitespacesAndNewlines)
         updatedProfile.name = trimmedName.isEmpty ? profiles[i].name : trimmedName
+        if updatedProfile.kind == .remote {
+            let trimmedURL = profile.url?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let trimmedURL, !trimmedURL.isEmpty {
+                updatedProfile.url = trimmedURL
+            }
+        }
+        updatedProfile.updateInterval = max(0, profile.updateInterval)
 
         let oldFileName = profiles[i].fileName
         let targetFileName = uniqueFileName(

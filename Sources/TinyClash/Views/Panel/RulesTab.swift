@@ -4,6 +4,7 @@ struct RulesTab: View {
     @Environment(AppState.self) private var state
     @State private var route = Route.list
     @State private var rules: [RuleItem] = []
+    @State private var search = ""
     @State private var loading = false
     @State private var error: String?
     @State private var requestID = UUID()
@@ -14,6 +15,25 @@ struct RulesTab: View {
     }
 
     private var canEditRules: Bool { state.canEditSelectedProfile }
+
+    private struct IndexedRule: Identifiable {
+        var index: Int
+        var rule: RuleItem
+        var id: Int { index }
+    }
+
+    private func filteredRules() -> [IndexedRule] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let all = rules.enumerated().map { IndexedRule(index: $0.offset, rule: $0.element) }
+        guard !query.isEmpty else { return all }
+        return all.filter { item in
+            let typeText = ConfigOverlay.yamlRuleType(item.rule.type)
+            let payloadText = item.rule.payload.isEmpty && typeText == "MATCH" ? "Default" : item.rule.payload
+            return payloadText.localizedCaseInsensitiveContains(query)
+                || typeText.localizedCaseInsensitiveContains(query)
+                || item.rule.proxy.localizedCaseInsensitiveContains(query)
+        }
+    }
 
     private struct LoadKey: Equatable {
         var running: Bool
@@ -52,6 +72,15 @@ struct RulesTab: View {
                     .background(Theme.canvas)
             }
         }
+        .onChange(of: state.selectedProfileID) {
+            route = .list
+            search = ""
+        }
+        .onChange(of: state.profileRevision) {
+            if case .edit = route, !state.isEditingSelectedProfile {
+                route = .list
+            }
+        }
     }
 
     private func confirmDelete(_ rule: RuleItem, at index: Int) {
@@ -62,20 +91,22 @@ struct RulesTab: View {
     }
 
     private var ruleList: some View {
-        VStack(spacing: 0) {
+        let filtered = filteredRules()
+        let hasQuery = !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Text("\(rules.count) 条规则")
+                Text(hasQuery ? "\(filtered.count) / \(rules.count) 条规则" : "\(rules.count) 条规则")
                     .foregroundStyle(.secondary)
-                    .help(state.needsCoreRestart
-                          ? "配置已修改，当前按配置文件规则顺序显示（重启内核后生效）"
+                    .help(!state.isRunning || state.needsCoreRestart
+                          ? "按当前配置文件中的规则顺序显示"
                           : "按内核匹配顺序显示；点击 RuleSet 规则可在编辑页下方查看规则集包含的条目")
                 Spacer(minLength: 4)
                 Button { Task { await loadRules() } } label: {
                     Label("刷新", systemImage: "arrow.clockwise")
                 }
                 .toolbarAction()
-                .help(state.needsCoreRestart ? "从配置文件刷新规则（需重启内核后生效）" : "从内核刷新规则")
-                .disabled(!state.isRunning || loading)
+                .help(!state.isRunning || state.needsCoreRestart ? "从配置文件刷新规则" : "从内核刷新规则")
+                .disabled(state.selectedProfile == nil || loading)
                 Button { route = .providers } label: {
                     Label("规则集", systemImage: "square.stack.3d.up")
                 }
@@ -93,11 +124,18 @@ struct RulesTab: View {
             .font(Theme.toolbarFont)
             .buttonStyle(.borderless)
             .padding(14)
+            if rules.count > 10 || !search.isEmpty {
+                TextField("搜索规则内容、类型或策略", text: $search)
+                    .textFieldStyle(.roundedBorder)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 10)
+                    .accessibilityLabel("搜索规则")
+            }
             Divider()
-            if state.coreState == .starting {
+            if state.coreState == .starting && rules.isEmpty {
                 LoadingHint(text: "内核启动中…")
-            } else if !state.isRunning {
-                EmptyHint(text: state.selectedProfile == nil ? "请先在「配置」页添加并选择配置" : "内核未运行\n启动后可查看规则，仍可添加规则并写入当前配置")
+            } else if state.selectedProfile == nil {
+                EmptyHint(text: "请先在「配置」页添加并选择配置")
                     .multilineTextAlignment(.center)
             } else if loading && rules.isEmpty {
                 LoadingHint(text: "读取规则中…")
@@ -111,23 +149,33 @@ struct RulesTab: View {
                 .padding(14)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if rules.isEmpty {
-                EmptyHint(text: "当前内核没有加载规则\n点击「添加规则」创建一个")
+                EmptyHint(text: state.isRunning ? "当前内核没有加载规则\n点击「添加规则」创建一个" : "当前配置没有规则\n点击「添加规则」创建一个")
+                    .multilineTextAlignment(.center)
+            } else if filtered.isEmpty {
+                EmptyHint(text: "没有匹配的规则")
                     .multilineTextAlignment(.center)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: Theme.Space.s) {
-                        if state.currentMode != .rule {
+                        if !state.isRunning {
+                            Text("内核未运行；当前显示配置文件中的规则，可直接添加、编辑或删除。")
+                                .font(.caption2).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.horizontal, 4)
+                        } else if state.currentMode != .rule {
                             Text("当前为\(state.currentMode.title)模式；切换到规则模式后，以下规则才参与匹配。")
                                 .font(.caption2).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .padding(.horizontal, 4)
                         }
-                        // 规则按顺序匹配：放在同一个分组里紧凑排列，并显示序号
+                        // 规则按顺序匹配：放在同一个分组里紧凑排列，并显示原始匹配序号
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(rules.enumerated()), id: \.offset) { index, rule in
+                            ForEach(Array(filtered.enumerated()), id: \.element.id) { offset, item in
+                                let index = item.index
+                                let rule = item.rule
                                 Button { open(rule, at: index) } label: {
                                     RuleRow(rule: rule, ordinal: index + 1, digits: String(rules.count).count,
-                                            divider: index < rules.count - 1)
+                                            divider: offset < filtered.count - 1)
                                 }
                                 .buttonStyle(PressableStyle())
                                 .contextMenu {
@@ -171,13 +219,13 @@ struct RulesTab: View {
     private func loadRules() async {
         let id = UUID()
         requestID = id
-        guard state.isRunning else {
+        guard state.selectedProfile != nil else {
             rules = []
             error = nil
             loading = false
             return
         }
-        if state.needsCoreRestart {
+        if !state.isRunning || state.needsCoreRestart {
             rules = state.yamlRuleItems()
             error = nil
             loading = false
