@@ -73,7 +73,7 @@ struct RuleProvidersPage: View {
                 .help("下载已加载的 HTTP 规则集，不改写 YAML 或重启内核")
                 .disabled(!canUpdate || !providers.values.contains(where: \.isRemoteRuleProvider))
             }
-            .font(.caption)
+            .font(Theme.toolbarFont)
             .buttonStyle(.borderless)
             .padding(.horizontal, 14)
             .padding(.bottom, 10)
@@ -366,7 +366,7 @@ struct RuleProviderEditorPage: View {
                         PanelRow(title: "名称") {
                             if original == nil {
                                 TextField("例如 reject", text: $provider.name)
-                                    .panelField()
+                                    .panelField().frame(width: PanelMetrics.fieldWidth)
                                     .accessibilityLabel("规则集名称")
                             } else {
                                 Text(provider.name).foregroundStyle(.secondary)
@@ -444,7 +444,7 @@ struct RuleProviderEditorPage: View {
                 if provider.type == "file" {
                     PanelRow(title: "文件路径", divider: false) {
                         TextField("rules/local.yaml", text: $provider.path)
-                            .panelField()
+                            .panelField().frame(width: PanelMetrics.fieldWidth)
                             .accessibilityLabel("规则集文件路径")
                     }
                 }

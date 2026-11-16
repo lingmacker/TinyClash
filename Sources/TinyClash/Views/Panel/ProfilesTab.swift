@@ -34,7 +34,7 @@ struct ProfilesTab: View {
         VStack(spacing: 0) {
             // 与「策略」「规则」一致：操作放在顶部工具栏
             HStack(spacing: 10) {
-                Text("\(state.profiles.count) 个配置").font(.caption).foregroundStyle(.secondary)
+                Text("\(state.profiles.count) 个配置").foregroundStyle(.secondary)
                 Spacer(minLength: 4)
                 Button { Task { await state.updateAllProfiles() } } label: {
                     Label("全部更新", systemImage: "arrow.clockwise")
@@ -63,7 +63,7 @@ struct ProfilesTab: View {
                 }
                 .toolbarAction(prominent: true)
             }
-            .font(.caption)
+            .font(Theme.toolbarFont)
             .buttonStyle(.borderless)
             .padding(14)
             Divider()
@@ -236,8 +236,6 @@ private struct ProfileCard: View {
 private struct AddSubscriptionPage: View {
     @Environment(AppState.self) private var state
     var back: () -> Void
-    /// 添加 / 编辑表单的输入框统一宽度，左缘对齐，不随标签文字长短变化
-    static let fieldWidth: CGFloat = 220
     @State private var url: String
 
     init(initialURL: String, back: @escaping () -> Void) {
@@ -254,10 +252,10 @@ private struct AddSubscriptionPage: View {
             VStack(alignment: .leading, spacing: Theme.Space.m) {
                 PanelSection(footer: "订阅需返回 mihomo / Clash 格式的 YAML；添加时会用内核校验。") {
                     PanelRow(title: "订阅链接") {
-                        TextField("https://", text: $url).panelField().frame(width: Self.fieldWidth)
+                        TextField("https://", text: $url).panelField().frame(width: PanelMetrics.fieldWidth)
                     }
                     PanelRow(title: "名称", divider: false) {
-                        TextField("可选", text: $name).panelField().frame(width: Self.fieldWidth)
+                        TextField("可选", text: $name).panelField().frame(width: PanelMetrics.fieldWidth)
                     }
                 }
                 if let error {
@@ -320,12 +318,12 @@ private struct EditProfilePage: View {
             VStack(alignment: .leading, spacing: Theme.Space.m) {
                 PanelSection {
                     PanelRow(title: "名称", divider: profile.kind == .remote) {
-                        TextField("名称", text: $profile.name).panelField().frame(width: AddSubscriptionPage.fieldWidth)
+                        TextField("名称", text: $profile.name).panelField().frame(width: PanelMetrics.fieldWidth)
                     }
                     if profile.kind == .remote {
                         PanelRow(title: "订阅链接") {
                             TextField("https://", text: Binding(get: { profile.url ?? "" }, set: { profile.url = $0 }))
-                                .panelField().frame(width: AddSubscriptionPage.fieldWidth)
+                                .panelField().frame(width: PanelMetrics.fieldWidth)
                         }
                         PanelRow(title: "自动更新", divider: false) {
                             Stepper(profile.updateInterval == 0 ? "关闭" : "每 \(profile.updateInterval) 小时",

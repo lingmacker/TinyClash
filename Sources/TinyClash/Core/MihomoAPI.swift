@@ -257,14 +257,11 @@ final class MihomoAPI: @unchecked Sendable {
         _ = try await request("PUT", "/proxies/\(group.pathEscaped)", body: ["name": proxy])
     }
 
-    func groupDelay(group: String, url: String, timeout: Int) async throws -> [String: Int] {
-        let data = try await request("GET", "/group/\(group.pathEscaped)/delay?url=\(url.queryEscaped)&timeout=\(timeout)",
-                                     timeout: TimeInterval(timeout) / 1000 + 30)
-        return (try? JSONDecoder().decode([String: Int].self, from: data)) ?? [:]
-    }
-
-    func proxyDelay(name: String, url: String, timeout: Int) async throws -> Int {
-        let data = try await request("GET", "/proxies/\(name.pathEscaped)/delay?url=\(url.queryEscaped)&timeout=\(timeout)",
+    /// proxy-providers 里的节点不在 /proxies 下（那里会直接返回 404），要走所属 provider 的 healthcheck
+    func proxyDelay(name: String, provider: String? = nil, url: String, timeout: Int) async throws -> Int {
+        let path = provider.map { "/providers/proxies/\($0.pathEscaped)/\(name.pathEscaped)/healthcheck" }
+            ?? "/proxies/\(name.pathEscaped)/delay"
+        let data = try await request("GET", "\(path)?url=\(url.queryEscaped)&timeout=\(timeout)",
                                      timeout: TimeInterval(timeout) / 1000 + 5)
         let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         return obj?["delay"] as? Int ?? 0

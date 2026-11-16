@@ -163,7 +163,7 @@ struct RuleEditorPage: View {
                                     }
                                     .panelPicker()
                                 } else {
-                                    TextField(type.example, text: $payload).panelField()
+                                    TextField(type.example, text: $payload).panelField().frame(width: PanelMetrics.fieldWidth)
                                 }
                             }
                         }
@@ -174,7 +174,7 @@ struct RuleEditorPage: View {
                                 }
                                 .panelPicker()
                             } else {
-                                TextField("DIRECT / 分组名", text: $policy).panelField()
+                                TextField("DIRECT / 分组名", text: $policy).panelField().frame(width: PanelMetrics.fieldWidth)
                             }
                         }
                         if type.noResolve {
@@ -350,7 +350,7 @@ struct GroupEditorPage: View {
                     PanelSection {
                         PanelRow(title: "名称") {
                             if original == nil {
-                                TextField("例如 我的香港", text: $group.name).panelField()
+                                TextField("例如 我的香港", text: $group.name).panelField().frame(width: PanelMetrics.fieldWidth)
                             } else {
                                 Text(group.name).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                             }
@@ -363,7 +363,7 @@ struct GroupEditorPage: View {
                         }
                         if group.isAutoTest {
                             PanelRow(title: "测速地址") {
-                                TextField(state.delayTestURL, text: $group.url).panelField()
+                                TextField(state.delayTestURL, text: $group.url).panelField().frame(width: PanelMetrics.fieldWidth)
                             }
                             PanelRow(title: "间隔（秒）", divider: false) {
                                 TextField("300", value: $group.interval, format: .number.grouping(.never))
@@ -376,7 +376,7 @@ struct GroupEditorPage: View {
                             Toggle("包含全部节点", isOn: $group.includeAll).labelsHidden().toggleStyle(.switch).controlSize(.small)
                         }
                         PanelRow(title: "筛选（正则）", divider: false) {
-                            TextField("香港|HK", text: $group.filter).panelField()
+                            TextField("香港|HK", text: $group.filter).panelField().frame(width: PanelMetrics.fieldWidth)
                         }
                     }
                     PanelSection(title: "成员（已选 \(group.proxies.count)）") {

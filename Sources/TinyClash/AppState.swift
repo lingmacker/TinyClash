@@ -625,10 +625,15 @@ final class AppState {
     // MARK: - Proxies
 
     func refreshProxies() async {
+        let settled = Set(freshDelays.keys)
         guard let api, var all = try? await api.proxies() else { return }
         // proxy-providers 中的节点不会出现在 /proxies，需要从 /providers/proxies 合并
+        var providerOf: [String: String] = [:]
         for provider in (try? await api.proxyProviders()) ?? [] {
-            for node in provider.proxies ?? [] where all[node.name] == nil { all[node.name] = node }
+            for node in provider.proxies ?? [] where all[node.name] == nil {
+                all[node.name] = node
+                providerOf[node.name] = provider.name
+            }
         }
         let order = all["GLOBAL"]?.all ?? []
         var names = order.filter { all[$0]?.isGroup == true && all[$0]?.hidden != true }
@@ -641,6 +646,9 @@ final class AppState {
         }
         proxies = all
         groupNames = names
+        nodeProviders = providerOf
+        // 请求前已测完的结果内核数据里都有了；请求期间新测完的留到下次刷新
+        for name in settled { freshDelays[name] = nil }
     }
 
     /// 菜单 / 列表中实际展示的组：全局模式只显示 GLOBAL，直连模式不显示
@@ -661,7 +669,7 @@ final class AppState {
         await refreshProxies()
     }
 
-    func delay(of name: String) -> Int? { proxies[name]?.lastDelay }
+    func delay(of name: String) -> Int? { freshDelays[name] ?? proxies[name]?.lastDelay }
 
     static let builtinPolicies = ["DIRECT", "REJECT", "REJECT-DROP", "PASS"]
 
@@ -713,36 +721,65 @@ final class AppState {
     /// 是否真的在接管流量（内核运行且开启了系统代理或 TUN）
     var isProxying: Bool { isRunning && (systemProxyEnabled || tunActive) }
 
+    /// 测一个策略组：组内每个节点单独测速，全部节点先标为测速中，结果逐个出现
     func testGroup(_ group: String) async {
-        guard let api, !testingGroups.contains(group), !pendingNewGroupNames.contains(group) else { return }
+        guard api != nil, !testingGroups.contains(group), !pendingNewGroupNames.contains(group) else { return }
         testingGroups.insert(group)
-        let url = proxies[group]?.testUrl.flatMap { $0.isEmpty ? nil : $0 } ?? delayTestURL
-        _ = try? await api.groupDelay(group: group, url: url, timeout: delayTimeout)
-        testingGroups.remove(group)
+        await runGroupTest(group)
         await refreshProxies()
     }
 
-    /// 多个策略组同时测速；限制并发数，避免几百个节点探测同时发出
-    func testGroups(_ names: [String], maxConcurrent: Int = 4) async {
-        let names = names.filter { !pendingNewGroupNames.contains($0) }
+    /// 多个策略组同时测速：所有组先显示测速中，节点探测统一经过并发上限排队
+    func testGroups(_ names: [String]) async {
+        let names = names.filter { api != nil && !testingGroups.contains($0) && !pendingNewGroupNames.contains($0) }
+        guard !names.isEmpty else { return }
+        testingGroups.formUnion(names)
         await withTaskGroup(of: Void.self) { group in
-            var pending = names.makeIterator()
-            for _ in 0..<maxConcurrent {
-                guard let name = pending.next() else { break }
-                group.addTask { await self.testGroup(name) }
-            }
-            while await group.next() != nil {
-                if let name = pending.next() { group.addTask { await self.testGroup(name) } }
-            }
+            for name in names { group.addTask { await self.runGroupTest(name) } }
         }
+        await refreshProxies()
     }
 
     func testProxy(_ name: String) async {
-        guard let api, !testingProxies.contains(name) else { return }
-        testingProxies.insert(name)
-        _ = try? await api.proxyDelay(name: name, url: delayTestURL, timeout: delayTimeout)
-        testingProxies.remove(name)
+        guard api != nil, !testingProxies.contains(name) else { return }
+        await probeDelay(name, url: delayTestURL).value
         await refreshProxies()
+    }
+
+    /// 同时进行的节点探测上限：组内节点逐个单独测，避免几百个探测同时发出
+    static let delayTestConcurrency = 8
+    private let delayLimiter = AsyncLimiter(limit: AppState.delayTestConcurrency)
+    /// 正在排队或进行中的节点探测；别的组也包含同一节点时直接等它，不重复测
+    private var delayProbes: [String: Task<Void, Never>] = [:]
+    /// 已测完、但还没随 refreshProxies 拿到内核数据的延迟，让结果逐个显示
+    private var freshDelays: [String: Int] = [:]
+    /// 来自 proxy-providers 的节点 → 所属 provider，测速要走 provider 的接口
+    private var nodeProviders: [String: String] = [:]
+
+    /// 调用方须先把组放进 testingGroups，结束时由这里移除
+    private func runGroupTest(_ group: String) async {
+        let url = proxies[group]?.testUrl.flatMap { $0.isEmpty ? nil : $0 } ?? delayTestURL
+        var seen = Set<String>()
+        let probes = (proxies[group]?.all ?? []).filter { seen.insert($0).inserted }.map { probeDelay($0, url: url) }
+        for probe in probes { await probe.value }
+        testingGroups.remove(group)
+    }
+
+    private func probeDelay(_ name: String, url: String) -> Task<Void, Never> {
+        if let probe = delayProbes[name] { return probe }
+        testingProxies.insert(name)
+        let api = api, provider = nodeProviders[name], timeout = delayTimeout, limiter = delayLimiter
+        let probe = Task {
+            await limiter.acquire()
+            // 超时或节点不可用时内核返回错误，按超时显示
+            let delay = (try? await api?.proxyDelay(name: name, provider: provider, url: url, timeout: timeout)) ?? 0
+            await limiter.release()
+            freshDelays[name] = delay
+            testingProxies.remove(name)
+            delayProbes[name] = nil
+        }
+        delayProbes[name] = probe
+        return probe
     }
 
     // MARK: - Streams

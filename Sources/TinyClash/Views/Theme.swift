@@ -156,6 +156,9 @@ enum Theme {
         return ms > 0 ? "\(ms) ms" : "超时"
     }
 
+    /// 各标签页顶部工具栏与子页面顶部栏（返回、标题、保存）共用的字号
+    static let toolbarFont: Font = .subheadline
+
     /// 实时数字（速度、流量、延迟）用圆体 + 等宽数字
     static func numeral(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
         .system(size: size, weight: weight, design: .rounded).monospacedDigit()

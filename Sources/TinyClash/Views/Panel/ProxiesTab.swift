@@ -59,7 +59,7 @@ struct ProxiesTab: View {
     private var overview: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Text("\(state.visibleGroups.count) 个策略组").font(.caption).foregroundStyle(.secondary)
+                Text("\(state.visibleGroups.count) 个策略组").foregroundStyle(.secondary)
                 Spacer(minLength: 4)
                 Button {
                     Task { await state.testGroups(state.visibleGroups.map(\.name)) }
@@ -80,7 +80,7 @@ struct ProxiesTab: View {
                     ProgressView().controlSize(.mini)
                 }
             }
-            .font(.caption)
+            .font(Theme.toolbarFont)
             .buttonStyle(.borderless)
             .padding(14)
             Divider()
@@ -262,6 +262,7 @@ private struct GroupDetail: View {
                         }
                     }
                     .menuStyle(.borderlessButton)
+                    .controlSize(.small)
                     .menuIndicator(.hidden)
                     .fixedSize()
                     .help("排序与编辑")
@@ -297,13 +298,6 @@ private struct GroupDetail: View {
                 }
                 .padding(14)
             }
-        }
-        .task(id: group.name) {
-            // 进入分组时还没有任何延迟数据，自动测一次，方便挑选节点
-            let all = group.all ?? []
-            guard state.isRunning, !all.isEmpty, !state.pendingNewGroupNames.contains(group.name),
-                  all.allSatisfy({ state.delay(of: $0) == nil }) else { return }
-            await state.testGroup(group.name)
         }
     }
 }
@@ -396,14 +390,12 @@ private struct NodeCell: View {
     }
 }
 
-/// 测速按钮：测速中在原位置叠加进度圈，文字保留占位，按钮宽度不变，旁边的按钮不会移动
+/// 测速按钮：测速中按钮置灰，进度显示在各策略组和节点上
 private struct TestingLabel: View {
     var testing: Bool
 
     var body: some View {
         Label("测速", systemImage: "bolt.fill")
-            .opacity(testing ? 0 : 1)
-            .overlay { if testing { ProgressView().controlSize(.small) } }
             .accessibilityLabel(testing ? "正在测速" : "测速")
     }
 }

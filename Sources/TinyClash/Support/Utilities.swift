@@ -132,3 +132,29 @@ extension String {
         return addingPercentEncoding(withAllowedCharacters: allowed) ?? self
     }
 }
+
+/// 异步并发上限：超出上限的调用按先后顺序排队等待
+actor AsyncLimiter {
+    private let limit: Int
+    private var running = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(limit: Int) { self.limit = max(1, limit) }
+
+    func acquire() async {
+        if running < limit {
+            running += 1
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    /// 有排队者时名额直接转交给最早的一个
+    func release() {
+        if waiters.isEmpty {
+            running -= 1
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
+}

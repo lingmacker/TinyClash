@@ -28,6 +28,8 @@ enum PanelTab: String, CaseIterable, Identifiable {
 enum PanelMetrics {
     static let width: CGFloat = 360
     static let height: CGFloat = 560
+    /// 表单里下拉列表与整行输入框的统一宽度，同一卡片内左右边缘对齐
+    static let fieldWidth: CGFloat = 160
 }
 
 struct MenuBarLabel: View {
@@ -314,18 +316,20 @@ struct SubpageHeader<Trailing: View>: View {
         HStack(spacing: Theme.Space.s) {
             Button(action: back) {
                 HStack(spacing: 3) {
-                    Image(systemName: "chevron.left").font(.system(size: 11, weight: .semibold))
+                    Image(systemName: "chevron.left").font(.system(size: 10, weight: .semibold))
                     Text("返回")
                 }
             }
             .buttonStyle(.borderless)
             .toolbarAction(prominent: true)
             .keyboardShortcut(.cancelAction)
-            Text(title).font(.headline).lineLimit(1).frame(maxWidth: .infinity)
+            Text(title).font(Theme.toolbarFont.weight(.semibold)).lineLimit(1).frame(maxWidth: .infinity)
             trailing.frame(minWidth: 50, alignment: .trailing)
         }
+        // 与各标签页顶部工具栏同一字号
+        .font(Theme.toolbarFont)
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.vertical, 14)
     }
 }
 
@@ -387,7 +391,7 @@ struct PanelRow<Trailing: View>: View {
 extension View {
     /// 设置行内下拉列表：统一固定宽度并靠右对齐
     @ViewBuilder
-    func panelPicker(width: CGFloat = 180) -> some View {
+    func panelPicker(width: CGFloat = PanelMetrics.fieldWidth) -> some View {
         let picker = labelsHidden()
         if #available(macOS 26, *) {
             picker.buttonSizing(.flexible).frame(width: width, alignment: .trailing)

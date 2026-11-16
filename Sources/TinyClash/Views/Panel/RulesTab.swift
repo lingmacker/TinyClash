@@ -65,7 +65,7 @@ struct RulesTab: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Text("\(rules.count) 条规则")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .foregroundStyle(.secondary)
                     .help(state.needsCoreRestart
                           ? "配置已修改，当前按配置文件规则顺序显示（重启内核后生效）"
                           : "按内核匹配顺序显示；点击 RuleSet 规则可在编辑页下方查看规则集包含的条目")
@@ -90,7 +90,7 @@ struct RulesTab: View {
                     ProgressView().controlSize(.mini)
                 }
             }
-            .font(.caption)
+            .font(Theme.toolbarFont)
             .buttonStyle(.borderless)
             .padding(14)
             Divider()
