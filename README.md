@@ -1,8 +1,18 @@
-# TinyClash
+<p align="center">
+  <img src="AppIcon.png" width="128" alt="TinyClash 图标">
+</p>
+
+<h1 align="center">TinyClash</h1>
 
 基于 [mihomo](https://github.com/MetaCubeX/mihomo) 内核的 macOS 菜单栏代理客户端（SwiftUI，macOS 14+）。
 
 没有主窗口，日常操作都在菜单栏面板里几秒完成；直接使用 mihomo 官方 YAML 配置，不转换为私有格式。
+
+## 截图
+
+| 首页 | 策略 | 配置 | 规则 | 设置 |
+| :---: | :---: | :---: | :---: | :---: |
+| <img src="docs/screenshots/home.png" width="180" alt="首页"> | <img src="docs/screenshots/proxies.png" width="180" alt="策略"> | <img src="docs/screenshots/profiles.png" width="180" alt="配置"> | <img src="docs/screenshots/rules.png" width="180" alt="规则"> | <img src="docs/screenshots/settings.png" width="180" alt="设置"> |
 
 ## 功能
 
