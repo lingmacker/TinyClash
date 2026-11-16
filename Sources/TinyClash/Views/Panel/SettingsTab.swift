@@ -68,8 +68,13 @@ struct SettingsTab: View {
                         Toggle("通过代理更新订阅", isOn: $state.subscriptionViaProxy).labelsHidden().toggleStyle(.switch).controlSize(.small)
                     }
                     PanelRow(title: "版本更新", divider: false) {
-                        Text("v\(state.appVersion)")
+                        Text(state.appVersionText)
                             .font(Theme.numeral(12, weight: .regular)).foregroundStyle(.secondary)
+                        if let update = state.availableUpdate {
+                            Button("下载 v\(update.version)") { NSWorkspace.shared.open(update.htmlURL) }
+                                .controlSize(.small)
+                                .help("在 GitHub 打开 v\(update.version) 的发布页")
+                        }
                         dataAction("检查更新", id: "update", disabled: false) {
                             await state.checkForUpdates()
                         }

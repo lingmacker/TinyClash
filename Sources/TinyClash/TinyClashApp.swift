@@ -38,13 +38,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         source.resume()
         termSource = source
-        #if TINYCLASH_PREVIEW
-        switch UserDefaults.standard.string(forKey: "uiAppearance") {
-        case "light": NSApp.appearance = NSAppearance(named: .aqua)
-        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
-        default: break
-        }
-        #endif
         Task { @MainActor in await AppState.shared.bootstrap() }
     }
 

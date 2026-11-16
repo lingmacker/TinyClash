@@ -363,6 +363,7 @@ private struct GroupDetail: View {
                     ForEach(members, id: \.self) { name in
                         NodeCell(
                             name: name,
+                            groupName: group.name,
                             selected: !isPending && group.now == name,
                             canSelect: canSelect,
                             canTest: state.isRunning,
@@ -392,6 +393,8 @@ private struct GroupDetail: View {
 /// 仅接收纯值参数并实现 Equatable，避免单节点测速完成时全表重绘。
 private struct NodeCell: View, Equatable {
     let name: String
+    /// 参与比较：闭包捕获了所属策略组，换组时必须重建，否则会对旧组执行选择
+    let groupName: String
     let selected: Bool
     let canSelect: Bool
     let canTest: Bool
@@ -404,6 +407,7 @@ private struct NodeCell: View, Equatable {
 
     static func == (lhs: NodeCell, rhs: NodeCell) -> Bool {
         lhs.name == rhs.name
+            && lhs.groupName == rhs.groupName
             && lhs.selected == rhs.selected
             && lhs.canSelect == rhs.canSelect
             && lhs.canTest == rhs.canTest

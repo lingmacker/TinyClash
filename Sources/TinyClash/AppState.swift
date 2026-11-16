@@ -148,16 +148,16 @@ final class AppState {
     var fallbackPort: Int {
         didSet {
             let clamped = Self.clampedPort(fallbackPort)
-            if fallbackPort != clamped { fallbackPort = clamped; return }
-            defaults.set(fallbackPort, forKey: "fallbackPort")
+            if fallbackPort != clamped { fallbackPort = clamped }
+            defaults.set(clamped, forKey: "fallbackPort")
         }
     }
     var delayTestURL: String { didSet { defaults.set(delayTestURL, forKey: "delayTestURL") } }
     var delayTimeout: Int {
         didSet {
             let clamped = Self.clampedDelayTimeout(delayTimeout)
-            if delayTimeout != clamped { delayTimeout = clamped; return }
-            defaults.set(delayTimeout, forKey: "delayTimeout")
+            if delayTimeout != clamped { delayTimeout = clamped }
+            defaults.set(clamped, forKey: "delayTimeout")
         }
     }
     var showSpeedInMenuBar: Bool {
@@ -186,14 +186,13 @@ final class AppState {
     /// 最近一次检查到的新版本（高于当前版本时保留，方便在设置页直接查看或下载）
     private(set) var availableUpdate: ReleaseInfo?
 
-    static let fallbackAppVersion = "1.0.17"
-    var appVersion: String {
-        if let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
-            let normalized = UpdateChecker.normalizedVersion(v)
-            if !normalized.isEmpty { return normalized }
-        }
-        return Self.fallbackAppVersion
+    /// 打包时由 build-app.sh 按 git tag 写入 Info.plist；swift run 未打包或无 tag（0.0.0）时为 nil（开发版）
+    var appVersion: String? {
+        guard let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String else { return nil }
+        let normalized = UpdateChecker.normalizedVersion(v)
+        return normalized.isEmpty || normalized == "0.0.0" ? nil : normalized
     }
+    var appVersionText: String { appVersion.map { "v\($0)" } ?? "开发版" }
 
     static func clampedPort(_ port: Int) -> Int {
         min(max(port, 1), 65535)
@@ -269,6 +268,10 @@ final class AppState {
         subscriptionViaProxy = d.bool(forKey: "subViaProxy")
         globalHotKeysEnabled = d.bool(forKey: "globalHotKeys")
         appearanceMode = AppearanceMode(rawValue: d.string(forKey: "appearanceMode") ?? "") ?? .system
+        #if TINYCLASH_PREVIEW
+        // 预览截图用 uiAppearance 临时指定外观；init 中赋值不触发 didSet，不会写回用户设置
+        if let ui = d.string(forKey: "uiAppearance"), let mode = AppearanceMode(rawValue: ui) { appearanceMode = mode }
+        #endif
 
         core.onUnexpectedExit = { [weak self] status, tail in
             Task { @MainActor in await self?.handleCoreCrash(status: status, log: tail) }
@@ -459,6 +462,11 @@ final class AppState {
         guard !restarting else { return }
         restarting = true
         defer { restarting = false }
+        await performRestart()
+    }
+
+    /// 实际的重启流程；调用方负责 restarting 标记，热重载失败时可在已置位的情况下直接回退到整进程重启
+    private func performRestart() async {
         crashRestartTask?.cancel()
         await clearSystemProxy()
         await restoreDNS()
@@ -476,7 +484,7 @@ final class AppState {
         do {
             try await api.reloadConfig(path: try effectiveConfigPath(for: profile))
         } catch {
-            return await restartCore()
+            return await performRestart()
         }
         guard self.api === api, isRunning else { return }
         needsCoreRestart = false
@@ -930,7 +938,8 @@ final class AppState {
         }
         if !stagedFinishedProxies.isEmpty {
             var updated = testingProxies
-            updated.subtract(stagedFinishedProxies)
+            // 结果缓冲期间又发起了新的探测的节点继续显示测速中
+            updated.subtract(stagedFinishedProxies.filter { delayProbes[$0] == nil })
             stagedFinishedProxies.removeAll()
             testingProxies = updated
         }
@@ -1531,20 +1540,17 @@ final class AppState {
     }
 
     func applyAppearance() {
-        let target = appearanceMode.nsAppearance
-        NSApp?.appearance = target
-        for window in NSApp?.windows ?? [] where !window.className.contains("StatusBar") {
-            if window.appearance != target { window.appearance = target }
-        }
+        // 窗口未单独设置外观时会跟随 NSApp，已打开的面板也会立即刷新
+        NSApp?.appearance = appearanceMode.nsAppearance
     }
 
     func checkForUpdates() async {
-        errorMessage = nil
         let port = isRunning ? runtime?.httpPort : nil
         let preferProxy = isProxying || subscriptionViaProxy
         do {
             let release = try await UpdateChecker.fetchLatestRelease(proxyPort: port, preferProxy: preferProxy)
-            if UpdateChecker.isNewer(remote: release.version, than: appVersion) {
+            // 开发版没有可比较的版本号，总是展示最新发布版本
+            if appVersion.map({ UpdateChecker.isNewer(remote: release.version, than: $0) }) ?? true {
                 availableUpdate = release
                 let summary = release.notes?
                     .split(whereSeparator: \.isNewline)
@@ -1553,14 +1559,14 @@ final class AppState {
                     .prefix(4)
                     .joined(separator: "\n") ?? ""
                 let msg = summary.isEmpty
-                    ? "当前版本 v\(appVersion)，最新版本 v\(release.version)。"
-                    : "当前版本 v\(appVersion) → v\(release.version)\n\n\(summary)"
+                    ? "当前版本 \(appVersionText)，最新版本 v\(release.version)。"
+                    : "当前版本 \(appVersionText) → v\(release.version)\n\n\(summary)"
                 confirm("发现新版本 v\(release.version)", message: msg, confirmTitle: "前往下载", destructive: false) {
                     NSWorkspace.shared.open(release.htmlURL)
                 }
             } else {
                 availableUpdate = nil
-                showToast("当前已是最新版本（v\(appVersion)）")
+                showToast("当前已是最新版本（\(appVersionText)）")
             }
         } catch {
             errorMessage = "检查更新失败：\(error.localizedDescription)"

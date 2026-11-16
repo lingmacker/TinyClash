@@ -10,7 +10,8 @@ source "$ROOT/dependencies.conf"
 APP="$ROOT/build/TinyClash.app"
 VENDOR="$ROOT/vendor"
 DEFAULT_VERSION="$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || true)"
-VERSION="${VERSION:-${DEFAULT_VERSION:-1.0.17}}"
+# 版本号以 git tag 为唯一来源；没有 tag（如浅克隆）时写入 0.0.0，App 内显示为开发版
+VERSION="${VERSION:-${DEFAULT_VERSION:-0.0.0}}"
 ARCH="${TARGET_ARCH:-$(uname -m)}"
 case "$ARCH" in
   arm64) CORE_ARCH="darwin-arm64" ;;

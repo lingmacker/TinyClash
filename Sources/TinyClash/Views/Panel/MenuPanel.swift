@@ -127,7 +127,6 @@ struct MenuPanel: View {
         .tint(Theme.accent)
         // 窗口打开时 AppKit 会把焦点给第一个输入框并全选文字，这里清掉，避免误输入
         .onAppear {
-            state.applyAppearance()
             clearFocus()
             visited.insert(tab)
             state.activeTab = tab

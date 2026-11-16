@@ -223,7 +223,8 @@ enum UpdateChecker {
         for port in ports {
             do {
                 return try await fetchLatestRelease(viaProxyPort: port)
-            } catch {
+            } catch let error as URLError {
+                // 只有网络不通时才换一条路径重试；服务器已应答的错误换路径也没用
                 lastError = error
             }
         }
@@ -246,8 +247,8 @@ enum UpdateChecker {
         } else {
             cfg.connectionProxyDictionary = [:]
         }
-        cfg.timeoutIntervalForRequest = 12
-        cfg.timeoutIntervalForResource = 20
+        cfg.timeoutIntervalForRequest = 8
+        cfg.timeoutIntervalForResource = 10
         let session = URLSession(configuration: cfg)
         defer { session.finishTasksAndInvalidate() }
 
