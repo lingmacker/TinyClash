@@ -65,6 +65,15 @@ final class AppState {
     // MARK: Runtime state
 
     var coreState: CoreState = .stopped
+    /// 停止内核前的出站路径和末端节点延迟，停止及再次启动期间首页继续显示；启动完成后清空
+    var stoppedRoute: (chain: [String], delay: Int?)?
+
+    /// 首页显示的出站路径：运行中或重启时用实时数据，停止后到再次启动完成前用停止前的记录
+    var displayedRoute: (chain: [String], delay: Int?)? {
+        if !isRunning, let stoppedRoute { return stoppedRoute }
+        let chain = routeChain
+        return chain.isEmpty ? nil : (chain, chain.last.flatMap(delay(of:)))
+    }
     var coreVersion = ""
     var runtime: RuntimeConfig?
     var isPrivileged = false
@@ -447,11 +456,13 @@ final class AppState {
             await applyRuntimeOverrides()
             await refreshProxies()
             coreState = .running
+            stoppedRoute = nil
             coreStartedAt = Date()
             startStreams()
             if systemProxyEnabled { await applySystemProxy() }
         } catch {
             coreState = .failed(error.localizedDescription)
+            stoppedRoute = nil
             errorMessage = error.localizedDescription
             await clearSystemProxy()
             await restoreDNS()
@@ -495,6 +506,7 @@ final class AppState {
     }
 
     func stopCore() async {
+        stoppedRoute = displayedRoute
         crashRestartTask?.cancel()
         stopStreams()
         await clearSystemProxy()

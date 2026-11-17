@@ -159,7 +159,8 @@ struct RouteRibbon: View {
     var compact = false
 
     var body: some View {
-        let chain = state.routeChain
+        let route = state.displayedRoute
+        let chain = route?.chain ?? []
         HStack(spacing: compact ? 5 : 6) {
             if !compact { segment(state.currentMode.title + "模式", systemImage: modeIcon, emphasis: false) }
             if state.currentMode == .direct {
@@ -173,10 +174,8 @@ struct RouteRibbon: View {
                     if i > 0 || !compact { arrow }
                     segment(name, systemImage: nil, emphasis: i == chain.count - 1)
                 }
-                if let last = chain.last {
-                    LatencyLabel(ms: state.delay(of: last), font: Theme.numeral(compact ? 11 : 12, weight: .medium))
-                        .padding(.leading, 2)
-                }
+                LatencyLabel(ms: route?.delay, font: Theme.numeral(compact ? 11 : 12, weight: .medium))
+                    .padding(.leading, 2)
             }
             Spacer(minLength: 0)
         }
@@ -277,7 +276,7 @@ struct ConfirmationOverlay: View {
     }
 }
 
-/// 状态指示：接管中 / 未接管 / 需重启生效 / 内核状态
+/// 状态指示：运行中 / 未接管 / 需重启生效 / 内核状态
 struct StatusBadge: View {
     @Environment(AppState.self) private var state
 
@@ -322,9 +321,9 @@ struct StatusBadge: View {
         switch state.coreState {
         case .running:
             if state.needsCoreRestart { return "需重启生效" }
-            return state.isProxying ? "接管中" : "未接管流量"
+            return state.isProxying ? "运行中" : "未接管流量"
         case .starting: return "启动中"
-        case .stopped: return "内核已停止"
+        case .stopped: return "已停止"
         case .failed: return "内核异常"
         }
     }
@@ -337,7 +336,8 @@ struct StatusBadge: View {
             if state.needsCoreRestart { return Theme.warningText }
             return state.isProxying ? Theme.statusActive : .secondary
         case .starting: return Theme.warningText
-        case .stopped: return .secondary
+        // 停止时流量不经过代理，和异常一样用红色醒目提示
+        case .stopped: return Theme.failure
         case .failed: return Theme.failure
         }
     }

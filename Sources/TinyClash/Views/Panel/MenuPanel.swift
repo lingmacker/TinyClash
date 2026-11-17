@@ -72,6 +72,9 @@ struct MenuPanel: View {
     /// 访问过的标签页保持挂载，切换标签时不丢失正在编辑的表单和滚动位置
     @State private var visited: Set<PanelTab> = []
     @State private var hoveringQuit = false
+    @State private var hoveringCore = false
+    /// 停止内核没有对应的 coreState，用本地标记让按钮在停止过程中也显示转圈
+    @State private var stoppingCore = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -136,6 +139,7 @@ struct MenuPanel: View {
         .onDisappear {
             state.isPanelOpen = false
             hoveringQuit = false
+            hoveringCore = false
         }
         .onChange(of: tab) {
             visited.insert(tab)
@@ -203,24 +207,83 @@ struct MenuPanel: View {
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: Theme.Space.s)
-            // 退出是低频操作且有 ⌘Q，只用低调的图标按钮，不和状态抢视线；悬停时变红提示破坏性操作
+            coreToggleButton
+            // 退出是低频操作且有 ⌘Q，平时用低调的灰色图标；悬停时变红、浮出红色底并轻微放大，退出过程中图标脉动表示正在收尾
             Button { NSApp.terminate(nil) } label: {
                 Image(systemName: "power")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(hoveringQuit && !state.quitting ? AnyShapeStyle(Theme.failure) : AnyShapeStyle(.secondary))
+                    .symbolEffect(.pulse, options: .repeating, isActive: state.quitting && !reduceMotion)
+                    .scaleEffect(hoveringQuit && !state.quitting && !reduceMotion ? 1.1 : 1)
                     .frame(width: 26, height: 26)
+                    .background(
+                        RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
+                            .fill(Theme.failure.opacity(hoveringQuit && !state.quitting ? 0.14 : 0))
+                    )
                     .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
-                    .hoverHighlight(cornerRadius: Theme.Radius.chip)
             }
             .buttonStyle(PressableStyle())
             .disabled(state.quitting)
-            .opacity(state.quitting ? 0.5 : 1)
+            .opacity(state.quitting ? 0.6 : 1)
             .onHover { hoveringQuit = $0 }
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hoveringQuit)
+            .animation(reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.25, dampingFraction: 0.6), value: hoveringQuit)
+            .animation(.easeOut(duration: 0.15), value: state.quitting)
             .keyboardShortcut("q")
             .help("退出 TinyClash（⌘Q）")
             .accessibilityLabel("退出 TinyClash")
         }
+    }
+
+    /// 内核启动 / 停止；启动中、重启中或退出时禁用，避免与进行中的流程交错。
+    /// 动效与退出按钮一致：悬停时停止变琥珀色、启动变绿色，浮出同色底并轻微放大；启动、停止或重启过程中显示转圈
+    private var coreToggleButton: some View {
+        let running = state.isRunning
+        let busy = state.coreState == .starting || state.restarting || stoppingCore
+        let enabled = !busy && !state.quitting
+        let tint = running ? Theme.warningText : Theme.active
+        let highlighted = hoveringCore && enabled
+        return Button {
+            Task {
+                if state.isRunning {
+                    stoppingCore = true
+                    await state.stopCore()
+                    stoppingCore = false
+                } else {
+                    await state.startCore()
+                }
+            }
+        } label: {
+            ZStack {
+                if busy {
+                    ProgressView().controlSize(.small)
+                        .transition(.opacity)
+                } else {
+                    // 实心方块的视觉面积比电源图标小，略放大让两枚图标看起来一样大
+                    Image(systemName: running ? "stop.fill" : "play.fill")
+                        .font(.system(size: running ? 15 : 13, weight: .medium))
+                        .foregroundStyle(highlighted ? AnyShapeStyle(tint) : AnyShapeStyle(.secondary))
+                        .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
+                        .scaleEffect(highlighted && !reduceMotion ? 1.1 : 1)
+                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.6)))
+                }
+            }
+            .frame(width: 26, height: 26)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
+                    .fill(tint.opacity(highlighted ? 0.14 : 0))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
+        }
+        .buttonStyle(PressableStyle())
+        .disabled(!enabled)
+        // 转圈本身已表示进行中，不再整体变暗；只有退出时才变暗
+        .opacity(state.quitting ? 0.6 : 1)
+        .onHover { hoveringCore = $0 }
+        .animation(reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.25, dampingFraction: 0.6), value: hoveringCore)
+        .animation(.easeOut(duration: 0.15), value: busy)
+        .animation(.easeOut(duration: 0.15), value: state.quitting)
+        .help(running ? "停止内核" : "启动内核")
+        .accessibilityLabel(running ? "停止内核" : "启动内核")
     }
 
     private var tabBar: some View {

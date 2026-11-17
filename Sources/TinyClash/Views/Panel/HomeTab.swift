@@ -20,11 +20,8 @@ struct HomeTab: View {
                 emptyState
             } else {
                 controls
-                if state.isRunning {
-                    TrafficPanel()
-                } else {
-                    Spacer(minLength: 0)
-                }
+                // 停止后流量面板保留，读数归零、端口显示「—」，避免主页布局随内核启停跳动
+                TrafficPanel()
                 actions
             }
         }
@@ -36,11 +33,12 @@ struct HomeTab: View {
 
     private var controls: some View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
+            // 内核未运行时系统代理已被撤销、TUN 也随内核关闭，开关显示为关闭；偏好仍保留，内核启动后自动恢复
             HStack(spacing: Theme.Space.s) {
-                ToggleTile(title: "系统代理", icon: "network", isOn: state.systemProxyEnabled, enabled: state.isRunning) {
+                ToggleTile(title: "系统代理", icon: "network", isOn: state.isRunning && state.systemProxyEnabled, enabled: state.isRunning) {
                     await state.setSystemProxy($0)
                 }
-                ToggleTile(title: "TUN", icon: "shield.lefthalf.filled", isOn: state.tunActive, enabled: state.isRunning) {
+                ToggleTile(title: "TUN", icon: "shield.lefthalf.filled", isOn: state.isRunning && state.tunActive, enabled: state.isRunning) {
                     await state.setTun($0)
                 }
             }
@@ -51,10 +49,13 @@ struct HomeTab: View {
             switch state.coreState {
             case .running:
                 route
-            case .starting:
-                notice("内核启动中…", action: nil)
-            case .stopped:
-                notice("内核未运行", action: ("启动内核", { Task { await state.startCore() } }))
+            case .starting, .stopped:
+                // 停止和启动过程中保留最后的出站路径，和上方开关一样变暗表示未生效；没有可显示的路径时不占位
+                if state.displayedRoute != nil {
+                    RouteRibbon(compact: true)
+                        .padding(.vertical, 4) // 与运行时可点击版本同高，启停时布局不跳动
+                        .opacity(0.5)
+                }
             case .failed(let msg):
                 notice(msg, action: ("重启内核", { Task { await state.restartCore() } }), isError: true)
             }
