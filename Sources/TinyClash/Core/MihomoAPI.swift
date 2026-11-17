@@ -182,7 +182,7 @@ enum APIError: LocalizedError {
         case .http(let code, let msg): return "HTTP \(code): \(msg)"
         case .notRunning: return "内核未运行"
         case .noNodeSubscriptions: return "当前配置没有可更新的 HTTP 节点订阅（proxy-providers）"
-        case .noRemoteRuleProviders: return "当前配置没有已加载的 HTTP 规则集，请先保存规则集并重启内核"
+        case .noRemoteRuleProviders: return "当前配置没有可更新的 HTTP 规则集"
         }
     }
 }

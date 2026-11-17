@@ -48,7 +48,7 @@ struct RuleEditorPage: View {
     @State private var extras: [String]
     @State private var saving = false
     @State private var error: String?
-    /// 策略与规则集名称在停核或待重启时要读取解析 YAML，缓存起来，避免每次输入都重读文件
+    /// 策略与规则集名称在停核时要读取解析 YAML，缓存起来，避免每次输入都重读文件
     @State private var policyNames: [String] = AppState.builtinPolicies
     @State private var ruleProviderNames: [String] = []
     /// 新规则的插入位置：最前面（默认，优先匹配）或兜底 MATCH 之前
@@ -467,7 +467,7 @@ struct ConfigWriteNotice: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("直接写入「\(state.selectedProfile?.name ?? "当前配置")」的 YAML 文件。\(placement)保存前用内核校验；内核运行时不会自动重启，可在全部改完后点击顶部「需重启生效」应用更改。")
+            Text("直接写入「\(state.selectedProfile?.name ?? "当前配置")」的 YAML 文件。\(placement)保存前用内核校验，内核运行时会自动重新加载配置。")
             if state.selectedProfile?.kind == .remote {
                 Text("订阅更新会覆盖本地修改：修改后自动更新会暂停，手动更新前会提示并备份。").foregroundStyle(Theme.warningText)
             }

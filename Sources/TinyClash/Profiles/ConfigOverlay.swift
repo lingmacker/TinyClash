@@ -177,7 +177,7 @@ enum ConfigOverlay {
         return parseGroupBody(lines[block.removeStart..<block.contentEnd], dashIndent: block.dashIndent)?.group
     }
 
-    /// 读取配置文件中的策略组摘要列表，用于重启内核前在 UI 中同步最新策略组状态
+    /// 读取配置文件中的策略组摘要列表，用于停核时在 UI 中展示与编辑策略组
     static func groupSummaries(in yaml: String) -> [GroupSummary] {
         let lines = readableLines(yaml)
         guard let keyIndex = topLevelKeyIndex("proxy-groups", in: lines) else { return [] }
@@ -312,7 +312,7 @@ enum ConfigOverlay {
         return match.map { entries[$0].text }
     }
 
-    /// 读取配置文件中的规则列表，用于重启内核前在 UI 中同步最新规则顺序与条目
+    /// 读取配置文件中的规则列表，用于停核或重载前在 UI 中同步规则顺序与条目
     static func ruleItems(in yaml: String) -> [RuleItem] {
         let lines = readableLines(yaml)
         guard let keyIndex = topLevelKeyIndex("rules", in: lines) else { return [] }

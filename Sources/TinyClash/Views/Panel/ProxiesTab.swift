@@ -108,7 +108,7 @@ struct ProxiesTab: View {
                 } label: { TestingLabel(testing: !state.testingGroups.isEmpty) }
                     .toolbarAction()
                     .help("测试全部策略组的延迟")
-                    .disabled(!state.isRunning || state.visibleGroups.allSatisfy { state.pendingNewGroupNames.contains($0.name) } || !state.testingGroups.isEmpty)
+                    .disabled(!state.isRunning || state.visibleGroups.isEmpty || !state.testingGroups.isEmpty)
                 Button { route = .requests } label: {
                     Label("请求日志", systemImage: "list.bullet.rectangle")
                 }
@@ -201,15 +201,14 @@ private struct GroupCard: View {
             }
             HStack(spacing: 6) {
                 let isOffline = !state.isRunning
-                let isPending = state.pendingNewGroupNames.contains(group.name)
                 // 当前选择是子分组时一路解析到最终节点，与首页出站路径一致
                 let chain = Array(state.resolvedChain(from: group).dropFirst())
-                let routeText = isOffline ? "内核未运行" : (isPending ? "待重启生效" : (chain.isEmpty ? "—" : chain.joined(separator: " › ")))
+                let routeText = isOffline ? "内核未运行" : (chain.isEmpty ? "—" : chain.joined(separator: " › "))
                 Text(routeText)
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
                     .help(chain.joined(separator: " › "))
                 Spacer(minLength: 4)
-                if !isOffline && !isPending, let last = chain.last { LatencyLabel(ms: state.delay(of: last)) }
+                if !isOffline, let last = chain.last { LatencyLabel(ms: state.delay(of: last)) }
             }
             HealthStrip(members: group.all ?? [])
         }
@@ -287,8 +286,7 @@ private struct GroupDetail: View {
 
     var body: some View {
         let isOffline = !state.isRunning
-        let isPending = isOffline || state.pendingNewGroupNames.contains(group.name)
-        let canSelect = state.isRunning && group.isSelectable && !isPending
+        let canSelect = state.isRunning && group.isSelectable
         let showProto = showsProtocol
         return VStack(spacing: 0) {
             SubpageHeader(title: group.name, back: back) {
@@ -299,7 +297,7 @@ private struct GroupDetail: View {
                         .buttonStyle(.borderless)
                         .toolbarAction(prominent: true)
                         .help("测试本组全部节点的延迟")
-                        .disabled(!state.isRunning || testing || state.pendingNewGroupNames.contains(group.name))
+                        .disabled(!state.isRunning || testing)
                     Menu {
                         Toggle("按延迟排序", isOn: $sortByDelay)
                         if group.name != "GLOBAL" {
@@ -335,12 +333,6 @@ private struct GroupDetail: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 18)
                     .padding(.bottom, 6)
-            } else if state.pendingNewGroupNames.contains(group.name) {
-                Text("新增策略组尚未加载到内核，点击顶部「需重启生效」重启后即可切换节点与测速")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 18)
-                    .padding(.bottom, 6)
             } else if !group.isSelectable {
                 Text("\(typeTitle(group.type))分组由内核自动选择节点，无法手动切换")
                     .font(.caption).foregroundStyle(.secondary)
@@ -358,7 +350,7 @@ private struct GroupDetail: View {
                         NodeCell(
                             name: name,
                             groupName: group.name,
-                            selected: !isPending && group.now == name,
+                            selected: !isOffline && group.now == name,
                             canSelect: canSelect,
                             canTest: state.isRunning,
                             detail: nodeDetail(state.proxies[name], showsProtocol: showProto),

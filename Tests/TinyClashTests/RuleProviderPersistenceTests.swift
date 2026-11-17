@@ -47,6 +47,20 @@ struct RuleProviderPersistenceTests {
         #expect(removed.hasSuffix("# document tail\r\n"))
     }
 
+    @Test func creationAndMissingBehaviorDefaultToClassicalWhileExplicitBehaviorsArePreserved() throws {
+        let provider = RuleProviderDefinition(name: "new", url: "https://example.com/rules.yaml")
+        #expect(provider.behavior == "classical")
+        let added = try ConfigOverlay.addRuleProvider(provider, to: "rules:\n  - MATCH,DIRECT\n")
+        #expect(try ConfigOverlay.ruleProviders(in: added) == [provider])
+
+        for behavior in ["domain", "ipcidr", "classical"] {
+            let yaml = "rule-providers:\n  existing:\n    type: http\n    behavior: \(behavior)\n    url: https://example.com/rules.yaml\n"
+            #expect(try ConfigOverlay.ruleProviders(in: yaml).first?.behavior == behavior)
+        }
+        let legacy = "rule-providers:\n  existing:\n    type: file\n    path: ./rules.yaml\n"
+        #expect(try ConfigOverlay.ruleProviders(in: legacy).first?.behavior == "classical")
+    }
+
     @Test func inlinePayloadSupportsBlockIndentlessAndFlowStringLists() throws {
         let yaml = "rule-providers:\n  'inline: rules':\n    type: inline\n    behavior: classical\n    payload:\n    - 'DOMAIN,example.com'\n    - 'DOMAIN-SUFFIX,example.org' # keep\n    - 'DOMAIN,can''t.example'\n  flow:\n    type: inline\n    payload: [\"+.example.com\", 'example # test', example.org]\n# trailing comment\n"
         let providers = try ConfigOverlay.ruleProviders(in: yaml)
@@ -158,7 +172,7 @@ struct RuleProviderPersistenceTests {
         let valid = RuleProviderDefinition(name: "rules", url: "https://example.com", interval: 0)
         #expect(valid.id == "rules")
         #expect(valid.validationMessage == nil)
-        #expect(valid.type == "http" && valid.behavior == "domain" && valid.format == "yaml")
+        #expect(valid.type == "http" && valid.behavior == "classical" && valid.format == "yaml")
         #expect(RuleProviderDefinition(name: "rules", type: "file", path: "./rules.yaml").validationMessage == nil)
         #expect(RuleProviderDefinition(name: "rules", type: "inline", payload: ["+.example.com"]).validationMessage == nil)
         #expect(RuleProviderDefinition().interval == 86400)

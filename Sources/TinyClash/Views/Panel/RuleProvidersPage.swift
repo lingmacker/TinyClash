@@ -18,16 +18,15 @@ struct RuleProvidersPage: View {
         var revision: Int
         var running: Bool
         var port: Int?
-        var needsRestart: Bool
     }
 
     private var loadKey: LoadKey {
         LoadKey(profileID: state.selectedProfileID, revision: state.profileRevision,
-                running: state.isRunning, port: state.api?.port, needsRestart: state.needsCoreRestart)
+                running: state.isRunning, port: state.api?.port)
     }
 
     private var canUpdate: Bool {
-        state.canEditSelectedProfile && state.isRunning && !state.needsCoreRestart && !loading
+        state.canEditSelectedProfile && state.isRunning && !loading
     }
 
     var body: some View {
@@ -120,9 +119,7 @@ struct RuleProvidersPage: View {
     }
 
     @ViewBuilder private var statusNotice: some View {
-        if state.needsCoreRestart {
-            notice("配置已修改；重启内核后显示条目数并可更新远程内容。", color: Theme.warningText)
-        } else if !state.isRunning {
+        if !state.isRunning {
             notice("内核未运行；仍可管理配置，启动后可更新远程内容。")
         }
         if let runtimeError {
@@ -187,7 +184,7 @@ struct RuleProvidersPage: View {
             definitions = latest
             error = nil
         }
-        if state.needsCoreRestart || !state.isRunning { providers = [:] }
+        if !state.isRunning { providers = [:] }
         route = .list
     }
 
@@ -217,8 +214,8 @@ struct RuleProvidersPage: View {
             self.error = error.localizedDescription
             return
         }
-        // 待重启或停核时运行状态已过期，不显示；否则保留旧状态直到新数据到达，避免卡片高度来回变化
-        guard state.isRunning, !state.needsCoreRestart, let api = state.api else {
+        // 停核时运行状态不可用；运行中保留旧状态直到新数据到达，避免卡片高度来回变化
+        guard state.isRunning, let api = state.api else {
             providers = [:]
             return
         }

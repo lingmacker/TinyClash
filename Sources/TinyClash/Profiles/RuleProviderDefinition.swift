@@ -8,7 +8,7 @@ struct RuleProviderDefinition: Equatable, Identifiable {
 
     var name = ""
     var type = "http"
-    var behavior = "domain"
+    var behavior = "classical"
     var format = "yaml"
     var url = ""
     var path = ""

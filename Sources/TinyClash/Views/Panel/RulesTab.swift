@@ -40,15 +40,13 @@ struct RulesTab: View {
         var profileID: UUID?
         var port: Int?
         var profileRevision: Int
-        var needsCoreRestart: Bool
     }
 
     private var loadKey: LoadKey {
         LoadKey(running: state.isRunning,
                 profileID: state.selectedProfileID,
                 port: state.api?.port,
-                profileRevision: state.profileRevision,
-                needsCoreRestart: state.needsCoreRestart)
+                profileRevision: state.profileRevision)
     }
 
     var body: some View {
@@ -77,6 +75,9 @@ struct RulesTab: View {
             search = ""
         }
         .onChange(of: state.profileRevision) {
+            if state.selectedProfile != nil {
+                rules = state.yamlRuleItems()
+            }
             if case .edit = route, !state.isEditingSelectedProfile {
                 route = .list
             }
@@ -97,7 +98,7 @@ struct RulesTab: View {
             HStack(spacing: 10) {
                 Text(hasQuery ? "\(filtered.count) / \(rules.count) 条规则" : "\(rules.count) 条规则")
                     .foregroundStyle(.secondary)
-                    .help(!state.isRunning || state.needsCoreRestart
+                    .help(!state.isRunning
                           ? "按当前配置文件中的规则顺序显示"
                           : "按内核匹配顺序显示；点击 RuleSet 规则可在编辑页下方查看规则集包含的条目")
                 Spacer(minLength: 4)
@@ -105,7 +106,7 @@ struct RulesTab: View {
                     Label("刷新", systemImage: "arrow.clockwise")
                 }
                 .toolbarAction()
-                .help(!state.isRunning || state.needsCoreRestart ? "从配置文件刷新规则" : "从内核刷新规则")
+                .help(!state.isRunning ? "从配置文件刷新规则" : "从内核刷新规则")
                 .disabled(state.selectedProfile == nil || loading)
                 Button { route = .providers } label: {
                     Label("规则集", systemImage: "square.stack.3d.up")
@@ -220,7 +221,7 @@ struct RulesTab: View {
             loading = false
             return
         }
-        if !state.isRunning || state.needsCoreRestart {
+        if !state.isRunning {
             rules = state.yamlRuleItems()
             error = nil
             loading = false
@@ -236,7 +237,7 @@ struct RulesTab: View {
         }
         do {
             let loaded = try await api.rules()
-            guard requestID == id, !Task.isCancelled, state.isRunning, !state.needsCoreRestart, state.api === api else { return }
+            guard requestID == id, !Task.isCancelled, state.isRunning, state.api === api else { return }
             rules = loaded
         } catch {
             guard requestID == id, !Task.isCancelled else { return }

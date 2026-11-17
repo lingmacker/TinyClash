@@ -53,7 +53,7 @@ final class UpdateAgeTests: XCTestCase {
 
     func testAppearanceModesFollowExpectedOrderAndTitles() {
         XCTAssertEqual(AppearanceMode.allCases, [.system, .dark, .light])
-        XCTAssertEqual(AppearanceMode.allCases.map(\.title), ["系统", "黑暗", "明亮"])
+        XCTAssertEqual(AppearanceMode.allCases.map(\.title), ["跟随系统", "黑暗", "明亮"])
         XCTAssertNil(AppearanceMode.system.nsAppearance)
         XCTAssertEqual(AppearanceMode.dark.nsAppearance?.name, .darkAqua)
         XCTAssertEqual(AppearanceMode.light.nsAppearance?.name, .aqua)

@@ -276,41 +276,19 @@ struct ConfirmationOverlay: View {
     }
 }
 
-/// 状态指示：运行中 / 未接管 / 需重启生效 / 内核状态
+/// 状态指示：运行中 / 未接管 / 内核状态
 struct StatusBadge: View {
     @Environment(AppState.self) private var state
 
-    private var needsRestart: Bool {
-        state.coreState == .running && state.needsCoreRestart && !state.restarting && !state.quitting
-    }
-
     var body: some View {
-        if needsRestart {
-            Button { Task { await state.applyPendingChanges() } } label: {
-                badge.hoverHighlight(cornerRadius: Theme.Radius.chip)
-            }
-            .buttonStyle(PressableStyle())
-            .help("配置已修改，点击重新加载配置以应用更改；重新加载失败时会重启内核")
-            .accessibilityLabel("需重启生效，点击应用更改")
-        } else {
-            badge
-        }
-    }
-
-    private var badge: some View {
-        HStack(spacing: needsRestart ? 4 : 6) {
-            // 需重启是待办事项，用图标而不是状态圆点，避免与品牌橙混成一片
-            if needsRestart {
-                Image(systemName: "arrow.clockwise.circle.fill").font(.system(size: 10, weight: .semibold))
-            } else {
-                Circle().fill(color).frame(width: 7, height: 7)
-            }
+        HStack(spacing: 6) {
+            Circle().fill(color).frame(width: 7, height: 7)
             Text(text).font(.caption.weight(.medium))
         }
         .foregroundStyle(color)
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
-        .background(state.isProxying && !needsRestart && !state.restarting && !state.quitting
+        .background(state.isProxying && !state.restarting && !state.quitting
                     ? Theme.statusActiveFill : color.opacity(0.12),
                     in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
     }
@@ -319,9 +297,7 @@ struct StatusBadge: View {
         if state.quitting { return "关闭中" }
         if state.restarting { return "重启中" }
         switch state.coreState {
-        case .running:
-            if state.needsCoreRestart { return "需重启生效" }
-            return state.isProxying ? "运行中" : "未接管流量"
+        case .running: return state.isProxying ? "运行中" : "未接管流量"
         case .starting: return "启动中"
         case .stopped: return "已停止"
         case .failed: return "内核异常"
@@ -332,9 +308,7 @@ struct StatusBadge: View {
         if state.quitting { return .secondary }
         if state.restarting { return Theme.warningText }
         switch state.coreState {
-        case .running:
-            if state.needsCoreRestart { return Theme.warningText }
-            return state.isProxying ? Theme.statusActive : .secondary
+        case .running: return state.isProxying ? Theme.statusActive : .secondary
         case .starting: return Theme.warningText
         // 停止时流量不经过代理，和异常一样用红色醒目提示
         case .stopped: return Theme.failure
