@@ -157,12 +157,7 @@ struct RulesTab: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: Theme.Space.s) {
-                        if !state.isRunning {
-                            Text("内核未运行；当前显示配置文件中的规则，可直接添加、编辑或删除。")
-                                .font(.caption2).foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(.horizontal, 4)
-                        } else if state.currentMode != .rule {
+                        if state.isRunning && state.currentMode != .rule {
                             Text("当前为\(state.currentMode.title)模式；切换到规则模式后，以下规则才参与匹配。")
                                 .font(.caption2).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)

@@ -150,12 +150,6 @@ struct ProxiesTab: View {
     private func groupList(_ groups: [ProxyItem]) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Space.s) {
-                if !state.isRunning {
-                    Text("内核未运行；当前显示配置文件中的策略组，可直接添加、编辑或删除。")
-                        .font(.caption2).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 4)
-                }
                 ForEach(groups) { group in
                     Button { openGroup = group.name } label: {
                         GroupCard(group: group).hoverHighlight()
