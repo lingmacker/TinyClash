@@ -113,17 +113,6 @@ struct HomeTab: View {
                 if let url = state.dashboardURL { NSWorkspace.shared.open(url) }
             }
             .help("在 metacubexd 中查看连接、规则与日志")
-            action(state.isRunning ? "重启内核" : "启动内核",
-                   icon: "arrow.clockwise",
-                   enabled: state.coreState != .starting && !state.restarting && !state.quitting) {
-                Task {
-                    if state.isRunning {
-                        await state.restartCore()
-                    } else {
-                        await state.startCore()
-                    }
-                }
-            }
         }
     }
 

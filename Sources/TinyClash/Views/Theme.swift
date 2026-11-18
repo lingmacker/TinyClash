@@ -87,6 +87,7 @@ enum Theme {
         })
     }
 
+    static let toolbarHoverForeground = semantic(.systemOrange, light: 143, 49, 0)
     static let download = semantic(.systemBlue, light: 0, 102, 214)
     static let upload = semantic(.systemTeal, light: 0, 112, 130)
     static let active = semantic(.systemGreen, light: 30, 128, 56)
@@ -232,8 +233,8 @@ extension View {
     }
 
     /// 可点击面板的悬停反馈
-    func hoverHighlight(cornerRadius: CGFloat = Theme.Radius.panel) -> some View {
-        modifier(HoverHighlight(cornerRadius: cornerRadius))
+    func hoverHighlight(cornerRadius: CGFloat = Theme.Radius.panel, enabled: Bool = true) -> some View {
+        modifier(HoverHighlight(cornerRadius: cornerRadius, enabled: enabled))
     }
 }
 
@@ -241,16 +242,19 @@ struct HoverHighlight: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.isEnabled) private var isEnabled
     var cornerRadius: CGFloat
+    var enabled: Bool = true
     @State private var hovering = false
 
     func body(content: Content) -> some View {
         content
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Color.primary.opacity(hovering && isEnabled ? 0.045 : 0))
+                    .fill(Color.primary.opacity(hovering && isEnabled && enabled ? 0.045 : 0))
                     .allowsHitTesting(false)
             )
             .onHover { hovering = $0 }
+            .onDisappear { hovering = false }
+            .onChange(of: isEnabled) { if !isEnabled { hovering = false } }
             .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
     }
 }
@@ -269,13 +273,22 @@ struct PressableStyle: ButtonStyle {
 
 struct ToolbarActionStyle: ViewModifier {
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering = false
     var prominent: Bool
 
     func body(content: Content) -> some View {
         content
             .labelStyle(.titleAndIcon)
             .foregroundStyle(!isEnabled ? AnyShapeStyle(.tertiary)
+                             : hovering ? AnyShapeStyle(Theme.toolbarHoverForeground)
                              : prominent ? AnyShapeStyle(Theme.accentForeground) : AnyShapeStyle(.primary))
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+            .onDisappear { hovering = false }
+            .onChange(of: isEnabled) { if !isEnabled { hovering = false } }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isEnabled)
     }
 }
 
