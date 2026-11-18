@@ -10,11 +10,15 @@ struct SettingsTab: View {
     @State private var appliedTunDNSServer = ""
 
     var body: some View {
-        if editingBypass {
-            BypassPage(back: { editingBypass = false })
-        } else {
-            root
+        Group {
+            if editingBypass {
+                BypassPage(back: { editingBypass = false })
+            } else {
+                root
+            }
         }
+        .accentColor(Theme.settingsControlTint)
+        .tint(Theme.settingsControlTint)
     }
 
     private func applyDNSIfNeeded() {
@@ -177,8 +181,6 @@ struct SettingsTab: View {
             }
             .padding(14)
         }
-        .accentColor(Theme.settingsControlTint)
-        .tint(Theme.settingsControlTint)
     }
 }
 

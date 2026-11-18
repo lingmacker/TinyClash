@@ -110,6 +110,8 @@ final class AppState {
     var updatingRuleProviders: Set<String> = []
     /// 后台自动更新失败的原因，显示在配置卡片上，不占用全局错误横幅
     var profileUpdateErrors: [UUID: String] = [:]
+    /// 从运行中内核获取到的各配置 proxy-provider 订阅流量与到期信息（按配置 ID 缓存）
+    private(set) var providerSubscriptions: [UUID: [ProviderSubscription]] = [:]
     /// 订阅文件与最近一次下载内容不同（在 App 内或外部编辑过），暂停自动更新
     private(set) var locallyModifiedProfiles: Set<UUID> = []
     private(set) var launchAtLoginStatus = SMAppService.mainApp.status
@@ -147,6 +149,7 @@ final class AppState {
                 hasConnectionSnapshot = false
                 connectionStreamError = nil
                 connectionStreamID = UUID()
+                updateWatchedProfile()
             }
         }
     }
@@ -253,6 +256,12 @@ final class AppState {
     private var crashRestartTask: Task<Void, Never>?
     private var pathMonitor: NWPathMonitor?
     private var networkChangeTask: Task<Void, Never>?
+    private var profileWatcher: ProfileFileWatcher?
+    private var profileWatcherRetryTask: Task<Void, Never>?
+    private var loadedProfileID: UUID?
+    private var loadedProfileHash: String?
+    private var attemptedProviderSubFetches: Set<String> = []
+    private var providerSubFetchTask: Task<Void, Never>?
 
     var api: MihomoAPI? { core.api }
     var isRunning: Bool { coreState == .running }
@@ -313,9 +322,11 @@ final class AppState {
         await recoverFromPreviousCrash()
 
         profiles = store.reconcileFileNames(store.load())
+        loadProviderSubscriptions()
         refreshLocalModifications()
         if selectedProfile == nil { selectedProfileID = profiles.first?.id }
         if selectedProfile != nil { await startCore() }
+        startProfileWatcher()
 
         autoUpdateTimer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.autoUpdateProfiles() }
@@ -396,11 +407,12 @@ final class AppState {
         await refreshProxies()
     }
 
-    /// 面板打开时刷新依赖外部状态的显示：系统代理、本地修改、登录项
+    /// 面板打开时刷新依赖外部状态的显示：系统代理、本地修改、登录项、节点与 Provider 订阅信息
     func panelDidOpen() async {
         refreshLocalModifications()
         refreshLaunchAtLoginStatus()
         await verifySystemProxy()
+        if isRunning { await refreshProxies() }
     }
 
     /// 打开面板时核对系统代理：被其他程序或系统设置改掉时如实显示
@@ -430,6 +442,9 @@ final class AppState {
     func shutdown() async {
         quitting = true
         crashRestartTask?.cancel()
+        profileWatcherRetryTask?.cancel()
+        providerSubFetchTask?.cancel()
+        profileWatcher?.stop()
         stopStreams()
         await clearSystemProxy()
         await restoreDNS()
@@ -454,6 +469,7 @@ final class AppState {
         requestLog.reset()
         coreState = .starting
         isPrivileged = core.isPrivileged
+        recordLoadedProfileHash(profile)
         do {
             _ = try await core.start(configPath: try effectiveConfigPath(for: profile))
             coreVersion = (try? await api?.version()) ?? coreVersion
@@ -495,6 +511,7 @@ final class AppState {
         guard isRunning, let api, let profile = selectedProfile else { return await restartCore() }
         restarting = true
         defer { restarting = false }
+        recordLoadedProfileHash(profile)
         let oldPort = runtime?.httpPort
         do {
             try await api.reloadConfig(path: try effectiveConfigPath(for: profile))
@@ -737,11 +754,20 @@ final class AppState {
     // MARK: - Proxies
 
     func refreshProxies() async {
+        _ = try? await reloadProxiesAndProviders()
+    }
+
+    @discardableResult
+    func reloadProxiesAndProviders() async throws -> (providers: [ProviderItem], proxies: [String: ProxyItem]) {
         let settled = Set(freshDelays.keys)
-        guard let api, var all = try? await api.proxies() else { return }
+        guard let api else { throw APIError.notRunning }
+        async let proxiesTask = api.proxies()
+        async let providersTask = api.proxyProviders()
+        var all = try await proxiesTask
+        let providers = try await providersTask
         // proxy-providers 中的节点不会出现在 /proxies，需要从 /providers/proxies 合并
         var providerOf: [String: String] = [:]
-        for provider in (try? await api.proxyProviders()) ?? [] {
+        for provider in providers {
             for node in provider.proxies ?? [] where all[node.name] == nil {
                 all[node.name] = node
                 providerOf[node.name] = provider.name
@@ -756,8 +782,12 @@ final class AppState {
         proxies = all
         groupNames = names
         nodeProviders = providerOf
+        if let profileID = selectedProfileID {
+            updateProviderSubscriptions(for: profileID, providers: providers)
+        }
         // 请求前已测完的结果内核数据里都有了；请求期间新测完的留到下次刷新
         for name in settled { freshDelays[name] = nil }
+        return (providers, all)
     }
 
     /// 菜单 / 列表中实际展示的组：全局模式只显示 GLOBAL，直连模式不显示
@@ -784,7 +814,7 @@ final class AppState {
 
     /// 当前配置中的节点（不含分组与内置策略），按 GLOBAL 中的顺序
     var nodeNames: [String] {
-        let builtin: Set = ["Direct", "Reject", "RejectDrop", "Pass", "Compatible"]
+        let builtin = ProfileNodes.builtinProxyTypes
         let order = proxies["GLOBAL"]?.all ?? []
         let isNode = { (n: String) in self.proxies[n].map { !$0.isGroup && !builtin.contains($0.type) } ?? false }
         let ordered = order.filter(isNode)
@@ -872,10 +902,16 @@ final class AppState {
         await refreshProxies()
     }
 
-    func testProxy(_ name: String) async {
+    func testProxy(_ name: String, provider: String? = nil) async {
         guard api != nil, !testingProxies.contains(name) else { return }
-        await probeDelay(name, url: delayTestURL).value
+        await probeDelay(name, url: delayTestURL, provider: provider).value
         flushStagedDelays()
+        await refreshProxies()
+    }
+
+    func testNodes(_ names: [String], provider: String? = nil) async {
+        guard api != nil, !names.isEmpty else { return }
+        await runNodeBatchTest(names, url: delayTestURL, provider: provider)
         await refreshProxies()
     }
 
@@ -896,22 +932,26 @@ final class AppState {
     /// 调用方须先把组放进 testingGroups，结束时由这里移除
     private func runGroupTest(_ group: String) async {
         let url = proxies[group]?.testUrl.flatMap { $0.isEmpty ? nil : $0 } ?? delayTestURL
+        await runNodeBatchTest(proxies[group]?.all ?? [], url: url)
+        testingGroups.remove(group)
+    }
+
+    private func runNodeBatchTest(_ names: [String], url: String, provider: String? = nil) async {
         var seen = Set<String>()
-        let members = (proxies[group]?.all ?? []).filter { seen.insert($0).inserted }
+        let members = names.filter { seen.insert($0).inserted }
         let unprobed = members.filter { delayProbes[$0] == nil }
         if !unprobed.isEmpty {
             testingProxies.formUnion(unprobed)
         }
-        let probes = members.map { probeDelay($0, url: url, markTesting: false) }
+        let probes = members.map { probeDelay($0, url: url, provider: provider, markTesting: false) }
         for probe in probes { await probe.value }
         flushStagedDelays()
-        testingGroups.remove(group)
     }
 
-    private func probeDelay(_ name: String, url: String, markTesting: Bool = true) -> Task<Void, Never> {
+    private func probeDelay(_ name: String, url: String, provider: String? = nil, markTesting: Bool = true) -> Task<Void, Never> {
         if let probe = delayProbes[name] { return probe }
         if markTesting { testingProxies.insert(name) }
-        let api = api, provider = nodeProviders[name], timeout = delayTimeout, limiter = delayLimiter
+        let api = api, provider = provider ?? nodeProviders[name], timeout = delayTimeout, limiter = delayLimiter
         let probe = Task {
             await limiter.acquire()
             // 超时或节点不可用时内核返回错误，按超时显示
@@ -1176,6 +1216,7 @@ final class AppState {
             busy = false
         }
         do {
+            attemptedProviderSubFetches = attemptedProviderSubFetches.filter { !$0.hasPrefix(id.uuidString + ":") }
             let failed = try await api.updateSubscriptionNodes()
             guard self.api === api, selectedProfileID == id, isRunning else { return }
             await refreshProxies()
@@ -1196,13 +1237,19 @@ final class AppState {
         locallyModifiedProfiles = Set(profiles.filter { store.isLocallyModified($0) }.map(\.id))
     }
 
+    func canUpdateProfile(_ id: UUID) -> Bool {
+        guard let profile = profiles.first(where: { $0.id == id }),
+              profile.kind == .remote, profile.url != nil else { return false }
+        return !updatingProfiles.contains(id) && !updatingProfileNodes.contains(id) && !editingProfiles.contains(id)
+    }
+
     /// 下载订阅并覆盖本地文件；覆盖前把当前文件备份到 backups/。
     /// `background` 为后台自动更新：失败只记在配置卡片上，不弹全局横幅。
     @discardableResult
     func updateProfile(_ id: UUID, background: Bool = false) async -> Bool {
-        guard let profile = profiles.first(where: { $0.id == id }), let url = profile.url,
-              !updatingProfiles.contains(id), !updatingProfileNodes.contains(id),
-              !editingProfiles.contains(id) else { return false }
+        guard canUpdateProfile(id),
+              let profile = profiles.first(where: { $0.id == id }),
+              let url = profile.url else { return false }
         updatingProfiles.insert(id)
         defer { updatingProfiles.remove(id) }
         do {
@@ -1221,8 +1268,11 @@ final class AppState {
             profileUpdateErrors[id] = nil
             autoUpdateFailures[id] = nil
             locallyModifiedProfiles.remove(id)
-            if id == selectedProfileID && isRunning {
-                await applyPendingChanges()
+            if id == selectedProfileID {
+                recordLoadedProfileHash(profiles[i])
+                if isRunning {
+                    await applyPendingChanges()
+                }
             }
             profileRevision &+= 1
             return true
@@ -1237,11 +1287,6 @@ final class AppState {
             }
             return false
         }
-    }
-
-    /// 「更新全部订阅」跳过本地修改过的配置，避免一次覆盖多份修改
-    func updateAllProfiles() async {
-        for p in profiles where p.kind == .remote && !isLocallyModified(p.id) { await updateProfile(p.id) }
     }
 
     /// 自动更新跳过本地修改过的配置；失败后按 1、2、4…小时退避（最长 6 小时）
@@ -1266,6 +1311,10 @@ final class AppState {
         }
         do {
             profiles = try store.saveProfile(profile, in: profiles)
+            if profile.id == selectedProfileID {
+                recordLoadedProfileHash(selectedProfile)
+                updateWatchedProfile()
+            }
             profileRevision &+= 1
             return true
         } catch {
@@ -1283,6 +1332,9 @@ final class AppState {
         profiles.removeAll { $0.id == id }
         profileUpdateErrors[id] = nil
         locallyModifiedProfiles.remove(id)
+        if providerSubscriptions.removeValue(forKey: id) != nil {
+            saveProviderSubscriptions()
+        }
         store.backup(p)
         try? FileManager.default.removeItem(at: p.fileURL)
         try? FileManager.default.removeItem(at: p.runtimeURL)
@@ -1300,19 +1352,168 @@ final class AppState {
         }
     }
 
+    private func loadProviderSubscriptions() {
+        guard let data = defaults.data(forKey: "providerSubscriptions"),
+              let decoded = try? JSONDecoder().decode([UUID: [ProviderSubscription]].self, from: data) else {
+            return
+        }
+        let validIDs = Set(profiles.map(\.id))
+        providerSubscriptions = decoded.filter { validIDs.contains($0.key) }
+    }
+
+    private func saveProviderSubscriptions() {
+        if let data = try? JSONEncoder().encode(providerSubscriptions) {
+            defaults.set(data, forKey: "providerSubscriptions")
+        }
+    }
+
+    private func updateProviderSubscriptions(for profileID: UUID, providers: [ProviderItem]) {
+        let profile = profiles.first { $0.id == profileID }
+        let yamlProviders: [ProxyProviderDefinition]
+        if let profile, let data = try? Data(contentsOf: profile.fileURL) {
+            yamlProviders = ConfigOverlay.proxyProviders(in: String(decoding: data, as: UTF8.self))
+        } else {
+            yamlProviders = []
+        }
+
+        let resolved = ProfileNodes.resolveProviderSubscriptions(
+            yamlProviders: yamlProviders,
+            runtimeProviders: providers,
+            cached: providerSubscriptions[profileID] ?? []
+        )
+        applyProviderSubscriptions(resolved.subscriptions, for: profileID)
+
+        let pending = resolved.missingHTTP.filter {
+            !attemptedProviderSubFetches.contains("\(profileID.uuidString):\($0.url)")
+        }
+        guard !pending.isEmpty else { return }
+        fetchMissingProviderSubscriptions(pending, for: profileID)
+    }
+
+    private func applyProviderSubscriptions(_ items: [ProviderSubscription], for profileID: UUID) {
+        if items.isEmpty {
+            if providerSubscriptions.removeValue(forKey: profileID) != nil {
+                saveProviderSubscriptions()
+            }
+        } else if providerSubscriptions[profileID] != items {
+            providerSubscriptions[profileID] = items
+            saveProviderSubscriptions()
+        }
+    }
+
+    private func fetchMissingProviderSubscriptions(_ defs: [ProxyProviderDefinition], for profileID: UUID) {
+        for def in defs {
+            attemptedProviderSubFetches.insert("\(profileID.uuidString):\(def.url)")
+        }
+        let port = proxyPortForDownload
+        providerSubFetchTask?.cancel()
+        providerSubFetchTask = Task { [weak self] in
+            guard let self else { return }
+            var fetchedByURL: [String: SubscriptionInfo] = [:]
+            for def in defs {
+                guard !Task.isCancelled else { return }
+                if fetchedByURL[def.url] != nil { continue }
+                if let info = (try? await self.store.download(def.url, viaProxyPort: port))?.subscription {
+                    fetchedByURL[def.url] = info
+                }
+            }
+            guard !Task.isCancelled, !fetchedByURL.isEmpty,
+                  let profile = self.profiles.first(where: { $0.id == profileID }),
+                  let data = try? Data(contentsOf: profile.fileURL) else { return }
+
+            let yamlProviders = ConfigOverlay.proxyProviders(in: String(decoding: data, as: UTF8.self))
+            let current = self.providerSubscriptions[profileID] ?? []
+            var byName = Dictionary(current.map { ($0.name, $0.subscription) }, uniquingKeysWith: { first, _ in first })
+            for def in yamlProviders {
+                if let info = fetchedByURL[def.url] {
+                    byName[def.name] = info
+                }
+            }
+            let updated = yamlProviders.compactMap { def -> ProviderSubscription? in
+                byName[def.name].map { ProviderSubscription(name: def.name, subscription: $0) }
+            }
+            self.applyProviderSubscriptions(updated, for: profileID)
+        }
+    }
+
     /// 在外部编辑器修改后，校验并重载当前配置
     func reloadCurrentProfile() async {
         guard let p = selectedProfile else { return }
-        do {
-            let r = await CoreManager.testConfig(try effectiveConfigPath(for: p))
-            if !r.ok { throw ProfileError.invalidConfig(r.output) }
-        } catch {
-            errorMessage = error.localizedDescription
+        if await validateAndApply(p, startIfStopped: true) {
+            refreshLocalModifications()
+            profileRevision &+= 1
+        }
+    }
+
+    private func startProfileWatcher() {
+        if profileWatcher == nil {
+            profileWatcher = ProfileFileWatcher { [weak self] in
+                Task { @MainActor in await self?.handleWatchedProfileChange() }
+            }
+        }
+        updateWatchedProfile()
+    }
+
+    private func updateWatchedProfile() {
+        profileWatcher?.watch(file: selectedProfile?.fileURL)
+    }
+
+    private func recordLoadedProfileHash(_ profile: Profile?) {
+        guard let profile, let data = try? Data(contentsOf: profile.fileURL), !data.isEmpty else {
+            loadedProfileID = profile?.id
+            loadedProfileHash = nil
             return
         }
+        loadedProfileID = profile.id
+        loadedProfileHash = ProfileStore.hash(data)
+    }
+
+    private func handleWatchedProfileChange() async {
+        guard !quitting, let profile = selectedProfile else { return }
+        if restarting || busy || coreState == .starting
+            || updatingProfiles.contains(profile.id) || editingProfiles.contains(profile.id) {
+            profileWatcherRetryTask?.cancel()
+            profileWatcherRetryTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard !Task.isCancelled else { return }
+                await self?.handleWatchedProfileChange()
+            }
+            return
+        }
+        guard let data = try? Data(contentsOf: profile.fileURL), !data.isEmpty else { return }
+        let hash = ProfileStore.hash(data)
+        if loadedProfileID == profile.id, loadedProfileHash == hash { return }
+
+        loadedProfileID = profile.id
+        loadedProfileHash = hash
         refreshLocalModifications()
-        if isRunning { await applyPendingChanges() } else { await startCore() }
         profileRevision &+= 1
+
+        guard isRunning else { return }
+        if await validateAndApply(profile, startIfStopped: false, errorPrefix: "检测到「\(profile.name)」已修改，但校验失败：") {
+            profileRevision &+= 1
+            if isRunning { showToast("配置已自动重载") }
+        }
+    }
+
+    @discardableResult
+    private func validateAndApply(_ profile: Profile, startIfStopped: Bool, errorPrefix: String = "") async -> Bool {
+        do {
+            let r = await CoreManager.testConfig(try effectiveConfigPath(for: profile))
+            guard selectedProfileID == profile.id else { return false }
+            if !r.ok { throw ProfileError.invalidConfig(r.output) }
+        } catch {
+            errorMessage = errorPrefix.isEmpty ? error.localizedDescription : "\(errorPrefix)\n\(error.localizedDescription)"
+            return false
+        }
+        errorMessage = nil
+        recordLoadedProfileHash(profile)
+        if isRunning {
+            await applyPendingChanges()
+        } else if startIfStopped {
+            await startCore()
+        }
+        return true
     }
 
     // MARK: - Official YAML additions / legacy compatibility
@@ -1459,8 +1660,11 @@ final class AppState {
         let validated = try await store.prepareEdit(edit, to: profile)
         profiles = try store.commit(validated, profiles: profiles)
         if profile.kind == .remote, profile.downloadedHash != nil { locallyModifiedProfiles.insert(profile.id) }
-        if wasRunning && isRunning && profile.id == selectedProfileID {
-            await applyPendingChanges()
+        if profile.id == selectedProfileID {
+            recordLoadedProfileHash(selectedProfile)
+            if wasRunning && isRunning {
+                await applyPendingChanges()
+            }
         }
         profileRevision &+= 1
     }

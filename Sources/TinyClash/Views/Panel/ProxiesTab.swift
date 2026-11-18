@@ -261,7 +261,7 @@ private struct GroupDetail: View {
 
     /// 组内节点协议都相同时，每行重复协议名没有信息量，只在混用时显示
     private var showsProtocol: Bool {
-        let builtin: Set = ["Direct", "Reject", "RejectDrop", "Pass", "Compatible"]
+        let builtin = ProfileNodes.builtinProxyTypes
         return Set((group.all ?? []).compactMap { state.proxies[$0] }
             .filter { !$0.isGroup && !builtin.contains($0.type) }.map(\.type)).count > 1
     }
@@ -377,18 +377,19 @@ private struct GroupDetail: View {
 
 /// 节点卡片：整张卡片是选择按钮；右下角的延迟读数是独立的测速按钮。
 /// 仅接收纯值参数并实现 Equatable，避免单节点测速完成时全表重绘。
-private struct NodeCell: View, Equatable {
+struct NodeCell: View, Equatable {
     let name: String
     /// 参与比较：闭包捕获了所属策略组，换组时必须重建，否则会对旧组执行选择
-    let groupName: String
-    let selected: Bool
-    let canSelect: Bool
+    var groupName: String = ""
+    var selected: Bool = false
+    var canSelect: Bool = false
     let canTest: Bool
+    var showLatency: Bool = true
     let detail: String?
     let delay: Int?
     let isTesting: Bool
-    var onSelect: () -> Void
-    var onTest: () -> Void
+    var onSelect: () -> Void = {}
+    var onTest: () -> Void = {}
     var onCopy: () -> Void
 
     static func == (lhs: NodeCell, rhs: NodeCell) -> Bool {
@@ -397,6 +398,7 @@ private struct NodeCell: View, Equatable {
             && lhs.selected == rhs.selected
             && lhs.canSelect == rhs.canSelect
             && lhs.canTest == rhs.canTest
+            && lhs.showLatency == rhs.showLatency
             && lhs.detail == rhs.detail
             && lhs.delay == rhs.delay
             && lhs.isTesting == rhs.isTesting
@@ -410,16 +412,20 @@ private struct NodeCell: View, Equatable {
             .buttonStyle(PressableStyle())
             .disabled(!canSelect)
             .accessibilityLabel(name)
-            .accessibilityValue(Theme.latencyText(delay))
+            .accessibilityValue(showLatency ? Theme.latencyText(delay) : (detail ?? ""))
             .accessibilityAddTraits(selected ? .isSelected : [])
             .accessibilityAction(named: "测试延迟", onTest)
-            latency
-                .padding(.trailing, 10)
-                .padding(.bottom, 8)
+            if showLatency {
+                latency
+                    .padding(.trailing, 10)
+                    .padding(.bottom, 8)
+            }
         }
         .help(name)
         .contextMenu {
-            Button("测试延迟", action: onTest).disabled(!canTest)
+            if showLatency {
+                Button("测试延迟", action: onTest).disabled(!canTest)
+            }
             Button("复制节点名", action: onCopy)
         }
     }
@@ -470,7 +476,7 @@ private struct NodeCell: View, Equatable {
 }
 
 /// 测速按钮：测速中按钮置灰，进度显示在各策略组和节点上
-private struct TestingLabel: View {
+struct TestingLabel: View {
     var testing: Bool
 
     var body: some View {

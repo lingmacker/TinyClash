@@ -37,7 +37,7 @@ struct RuntimeConfig: Decodable {
     var socksProxyPort: Int { mixedPort > 0 ? mixedPort : socksPort }
 }
 
-struct ProxyItem: Decodable, Identifiable {
+struct ProxyItem: Decodable, Identifiable, Equatable {
     var id: String { name }
     var name: String
     var type: String
@@ -50,12 +50,12 @@ struct ProxyItem: Decodable, Identifiable {
     var extra: [String: ExtraInfo]?
     var testUrl: String?
 
-    struct DelayHistory: Decodable {
+    struct DelayHistory: Decodable, Equatable {
         var delay: Int
         var time: String?
     }
 
-    struct ExtraInfo: Decodable { var history: [DelayHistory]? }
+    struct ExtraInfo: Decodable, Equatable { var history: [DelayHistory]? }
 
     var isGroup: Bool { all != nil }
     var isSelectable: Bool { type == "Selector" }
@@ -68,13 +68,13 @@ struct ProxyItem: Decodable, Identifiable {
 }
 
 extension ProxyItem {
-    init(name: String, type: String, now: String? = nil, all: [String]? = nil) {
+    init(name: String, type: String, now: String? = nil, all: [String]? = nil, udp: Bool? = nil) {
         self.name = name
         self.type = type
         self.now = now
         self.all = all
         self.hidden = nil
-        self.udp = nil
+        self.udp = udp
         self.history = nil
         self.extra = nil
         self.testUrl = nil

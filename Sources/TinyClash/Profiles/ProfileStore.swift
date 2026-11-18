@@ -31,6 +31,31 @@ struct SubscriptionInfo: Codable, Equatable {
         guard value > 0 else { return 0 }
         return value >= 9.2e18 ? Int64.max / 4 : Int64(value)
     }
+
+    init?(dto: ProviderItem.SubscriptionInfoDTO?) {
+        guard let dto else { return nil }
+        let upload = max(0, dto.Upload ?? 0)
+        let download = max(0, dto.Download ?? 0)
+        let total = max(0, dto.Total ?? 0)
+        let expire: Date?
+        if let rawExpire = dto.Expire, rawExpire > 0, rawExpire < 32_503_680_000 {
+            expire = Date(timeIntervalSince1970: TimeInterval(rawExpire))
+        } else {
+            expire = nil
+        }
+        guard total > 0 || expire != nil else { return nil }
+        self.upload = upload
+        self.download = download
+        self.total = total
+        self.expire = expire
+    }
+}
+
+struct ProviderSubscription: Codable, Equatable, Identifiable {
+    var name: String
+    var subscription: SubscriptionInfo
+
+    var id: String { name }
 }
 
 struct Profile: Codable, Identifiable, Equatable {

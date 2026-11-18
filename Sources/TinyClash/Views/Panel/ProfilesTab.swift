@@ -4,6 +4,7 @@ struct ProfilesTab: View {
     @Environment(AppState.self) private var state
     @State private var adding = false
     @State private var editing: Profile?
+    @State private var viewingNodes = false
 
     var body: some View {
         Group {
@@ -14,6 +15,8 @@ struct ProfilesTab: View {
                     adding = false
                     state.addSubscriptionRequest = nil
                 }
+            } else if viewingNodes {
+                AllNodesPage { viewingNodes = false }
             } else {
                 list
             }
@@ -30,10 +33,9 @@ struct ProfilesTab: View {
     private func takeAddRequest() {
         guard state.addSubscriptionRequest != nil else { return }
         editing = nil
+        viewingNodes = false
         adding = true
     }
-
-    private var hasSubscriptions: Bool { state.profiles.contains { $0.kind == .remote } }
 
     private var list: some View {
         VStack(spacing: 0) {
@@ -41,12 +43,11 @@ struct ProfilesTab: View {
             HStack(spacing: 10) {
                 Text("\(state.profiles.count) 个配置").foregroundStyle(.secondary)
                 Spacer(minLength: 4)
-                Button { Task { await state.updateAllProfiles() } } label: {
-                    Label("全部更新", systemImage: "arrow.clockwise")
+                Button { viewingNodes = true } label: {
+                    Label("节点列表", systemImage: "server.rack")
                 }
                 .toolbarAction()
-                .disabled(!hasSubscriptions)
-                .help("更新全部订阅；本地修改过的订阅不会被覆盖，需在卡片上单独更新")
+                .help("查看全部节点")
                 Menu {
                     Button("导入 YAML 文件…") { Task { await state.importProfileFromFile() } }
                     Button("新建空白配置") {
@@ -119,18 +120,30 @@ private struct ProfileCard: View {
                             Text("更新于 \(Format.updateAge(profile.updatedAt, now: context.date))")
                         }
                         if let exp = profile.subscription?.expire {
-                            let soon = exp.timeIntervalSinceNow < 7 * 86400
-                            HStack(spacing: 3) {
-                                if soon { Image(systemName: "exclamationmark.circle.fill") }
-                                Text("到期 \(exp.formatted(date: .numeric, time: .omitted))")
-                            }
-                            .foregroundStyle(soon ? Theme.warningText : .secondary)
+                            SubscriptionExpireLabel(date: exp)
                         }
                     }
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     .padding(.leading, 22)
                     if let sub = profile.subscription, sub.total > 0 {
-                        usageBar(sub).padding(.leading, 22)
+                        SubscriptionUsageBar(subscription: sub).padding(.leading, 22)
+                    } else if profile.subscription == nil,
+                              let providerSubs = state.providerSubscriptions[profile.id], !providerSubs.isEmpty {
+                        ForEach(providerSubs) { item in
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: Theme.Space.s) {
+                                    Text(item.name).fontWeight(.medium).lineLimit(1).truncationMode(.middle)
+                                    if let exp = item.subscription.expire {
+                                        SubscriptionExpireLabel(date: exp)
+                                    }
+                                }
+                                .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                if item.subscription.total > 0 {
+                                    SubscriptionUsageBar(subscription: item.subscription)
+                                }
+                            }
+                            .padding(.leading, 22)
+                        }
                     }
                     if let message = state.profileUpdateErrors[profile.id] {
                         Label("自动更新失败：\(message)", systemImage: "exclamationmark.triangle.fill")
@@ -146,13 +159,16 @@ private struct ProfileCard: View {
             .accessibilityAddTraits(selected ? .isSelected : [])
             .help(selected ? "当前使用的配置" : "点击切换到此配置")
             HStack(spacing: 8) {
-                if state.updatingProfiles.contains(profile.id) || state.updatingProfileNodes.contains(profile.id) {
+                if isUpdatingSubscription || isUpdatingNodes {
                     ProgressView().controlSize(.mini)
                 } else if profile.kind == .remote {
-                    Button {
-                        if locallyModified { confirmOverwrite() } else { Task { await state.updateProfile(profile.id) } }
-                    } label: { Image(systemName: "arrow.clockwise") }
-                        .buttonStyle(.borderless).help("更新订阅").accessibilityLabel("更新订阅")
+                    Button(action: triggerSubscriptionUpdate) {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(!state.canUpdateProfile(profile.id))
+                    .help("更新订阅")
+                    .accessibilityLabel("更新订阅")
                 }
                 menu
             }
@@ -167,6 +183,10 @@ private struct ProfileCard: View {
 
     private var menu: some View {
         Menu {
+            if profile.kind == .remote {
+                Button(subscriptionUpdateTitle, action: triggerSubscriptionUpdate)
+                    .disabled(!state.canUpdateProfile(profile.id))
+            }
             Button("在编辑器中打开 YAML") { NSWorkspace.shared.open(profile.fileURL) }
             if state.selectedProfileID == profile.id {
                 Button("重新加载（编辑 YAML 后）") { Task { await state.reloadCurrentProfile() } }
@@ -193,12 +213,30 @@ private struct ProfileCard: View {
             .accessibilityLabel("「\(profile.name)」的更多操作")
     }
 
+    private var isUpdatingSubscription: Bool { state.updatingProfiles.contains(profile.id) }
+    private var isUpdatingNodes: Bool { state.updatingProfileNodes.contains(profile.id) }
+
+    private var subscriptionUpdateTitle: String {
+        if isUpdatingSubscription { return "正在更新订阅…" }
+        if isUpdatingNodes { return "更新订阅（正在更新节点）" }
+        return "更新订阅"
+    }
+
     /// 不可用的原因直接写在菜单项标题里，不再额外放一条不能点的说明
     private var nodeUpdateTitle: String {
-        if state.updatingProfileNodes.contains(profile.id) { return "正在更新订阅节点…" }
+        if isUpdatingNodes { return "正在更新订阅节点…" }
         if state.selectedProfileID != profile.id { return "更新订阅节点（需先切换到此配置）" }
         if !state.isRunning { return "更新订阅节点（需先启动内核）" }
         return "更新订阅节点"
+    }
+
+    private func triggerSubscriptionUpdate() {
+        guard state.canUpdateProfile(profile.id) else { return }
+        if locallyModified {
+            confirmOverwrite()
+        } else {
+            Task { await state.updateProfile(profile.id) }
+        }
     }
 
     private func confirmDelete() {
@@ -219,11 +257,28 @@ private struct ProfileCard: View {
             Task { await state.updateProfile(id) }
         }
     }
+}
 
-    private func usageBar(_ sub: SubscriptionInfo) -> some View {
-        let ratio = min(Double(sub.used) / Double(sub.total), 1)
+struct SubscriptionExpireLabel: View {
+    let date: Date
+
+    var body: some View {
+        let soon = date.timeIntervalSinceNow < 7 * 86400
+        HStack(spacing: 3) {
+            if soon { Image(systemName: "exclamationmark.circle.fill") }
+            Text("到期 \(date.formatted(date: .numeric, time: .omitted))")
+        }
+        .foregroundStyle(soon ? Theme.warningText : .secondary)
+    }
+}
+
+struct SubscriptionUsageBar: View {
+    let subscription: SubscriptionInfo
+
+    var body: some View {
+        let ratio = min(Double(subscription.used) / Double(subscription.total), 1)
         let tint = ratio > 0.9 ? Theme.failure : ratio > 0.75 ? Theme.warning : Color.accentColor
-        return HStack(spacing: Theme.Space.s) {
+        HStack(spacing: Theme.Space.s) {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Theme.inset)
@@ -231,7 +286,7 @@ private struct ProfileCard: View {
                 }
             }
             .frame(height: 4)
-            Text("\(Format.bytes(sub.used)) / \(Format.bytes(sub.total))")
+            Text("\(Format.bytes(subscription.used)) / \(Format.bytes(subscription.total))")
                 .font(Theme.numeral(10, weight: .regular)).foregroundStyle(.secondary)
                 .fixedSize()
         }
@@ -253,7 +308,17 @@ private struct AddSubscriptionPage: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            SubpageHeader(title: "添加订阅", back: back)
+            SubpageHeader(title: "添加订阅", back: back) {
+                if loading {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button("添加", action: add)
+                        .buttonStyle(.borderless)
+                        .toolbarAction(prominent: true)
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(url.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
             VStack(alignment: .leading, spacing: Theme.Space.m) {
                 PanelSection(footer: "订阅需返回 mihomo / Clash 格式的 YAML；添加时会用内核校验。") {
                     PanelRow(title: "订阅链接") {
@@ -263,6 +328,9 @@ private struct AddSubscriptionPage: View {
                         TextField("可选", text: $name).panelField().frame(width: PanelMetrics.fieldWidth)
                     }
                 }
+                if loading {
+                    Text("下载并校验中…").font(.caption).foregroundStyle(.secondary)
+                }
                 if let error {
                     ScrollView {
                         Text(error).font(.caption).foregroundStyle(Theme.failure).textSelection(.enabled)
@@ -270,29 +338,23 @@ private struct AddSubscriptionPage: View {
                     }
                     .frame(maxHeight: 120)
                 }
-                HStack {
-                    if loading { ProgressView().controlSize(.small); Text("下载并校验中…").font(.caption).foregroundStyle(.secondary) }
-                    Spacer()
-                    Button("添加") {
-                        loading = true
-                        error = nil
-                        Task {
-                            do {
-                                try await state.addRemoteProfile(url: url, name: name)
-                                back()
-                            } catch let e {
-                                error = e.localizedDescription
-                            }
-                            loading = false
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(url.trimmingCharacters(in: .whitespaces).isEmpty || loading)
-                }
             }
             .padding(14)
             Spacer()
+        }
+    }
+
+    private func add() {
+        loading = true
+        error = nil
+        Task {
+            do {
+                try await state.addRemoteProfile(url: url, name: name)
+                back()
+            } catch let e {
+                error = e.localizedDescription
+            }
+            loading = false
         }
     }
 }

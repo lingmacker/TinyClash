@@ -230,7 +230,7 @@ enum ConfigOverlay {
         return GroupSummary(name: name, apiType: apiGroupType(type), proxies: proxies, includeAll: includeAll)
     }
 
-    private static func splitFlowPair(_ pair: String) -> (key: String, value: String)? {
+    static func splitFlowPair(_ pair: String) -> (key: String, value: String)? {
         var quote: Character?
         var escaped = false
         for idx in pair.indices {
@@ -521,7 +521,7 @@ enum ConfigOverlay {
     // MARK: - Section & Block Helpers
 
     /// 顶层键可以带引号（`"rules":`），冒号前允许空格
-    private static func topLevelKeyIndex(_ key: String, in lines: [String]) -> Int? {
+    static func topLevelKeyIndex(_ key: String, in lines: [String]) -> Int? {
         lines.firstIndex { line in
             for candidate in [key, "\"\(key)\"", "'\(key)'"] where line.hasPrefix(candidate) {
                 if line.dropFirst(candidate.count).drop(while: { $0 == " " }).hasPrefix(":") { return true }
@@ -531,7 +531,7 @@ enum ConfigOverlay {
     }
 
     /// 顶层键所在行冒号之后的原始文本
-    private static func valueAfterKey(_ line: String) -> String {
+    static func valueAfterKey(_ line: String) -> String {
         guard let colon = line.firstIndex(of: ":") else { return "" }
         return String(line[line.index(after: colon)...])
     }
@@ -549,7 +549,7 @@ enum ConfigOverlay {
     }
 
     /// 只读解析时容忍混用的换行符
-    private static func readableLines(_ yaml: String) -> [String] {
+    static func readableLines(_ yaml: String) -> [String] {
         hasMixedNewlines(yaml)
             ? yaml.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
             : yaml.components(separatedBy: yaml.contains("\r\n") ? "\r\n" : "\n")

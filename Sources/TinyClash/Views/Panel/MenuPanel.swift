@@ -96,6 +96,14 @@ struct MenuPanel: View {
                         tabContent(t)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                             .opacity(t == tab ? 1 : 0)
+                            .scaleEffect(t == tab ? 1 : 0.985, anchor: .top)
+                            // 切入用 spring，轻量弹性；reduceMotion 退化为普通淡入
+                            .animation(
+                                reduceMotion
+                                    ? .easeOut(duration: 0.12)
+                                    : .spring(response: 0.28, dampingFraction: 0.86),
+                                value: tab
+                            )
                             // 隐藏的标签页禁用交互，避免其中的 ⎋ / ↩ 快捷键被触发
                             .disabled(t != tab)
                             .allowsHitTesting(t == tab)

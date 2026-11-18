@@ -38,13 +38,15 @@ enum Theme {
         a.isDark ? NSColor(white: 1, alpha: 0.09) : NSColor(white: 0, alpha: 0.055)
     })
 
-    /// 基于 OrangePulse 渐变，向浅色端略微提亮的暖橙色。
-    private static let accentColor = NSColor(srgbRed: 245 / 255, green: 123 / 255, blue: 63 / 255, alpha: 1)
+    /// 主强调橙 #CB4D17，深饱和暖橙。
+    private static let accentColor = NSColor(srgbRed: 203 / 255, green: 77 / 255, blue: 23 / 255, alpha: 1)
     static let accent = Color(nsColor: accentColor)
+    /// 原生控件在深色外观下会压暗填色，补偿约 20% 亮度使渲染结果接近 accentColor。
+    /// 蓝色通道须压低，否则偏棕橙。
     static let settingsControlTint = Color(nsColor: NSColor(name: nil) { a in
-        a.isDark ? NSColor(srgbRed: 1, green: 125 / 255, blue: 24 / 255, alpha: 1) : accentColor
+        a.isDark ? NSColor(srgbRed: 240 / 255, green: 96 / 255, blue: 28 / 255, alpha: 1) : accentColor
     })
-    static let accentHighlight = Color(.sRGB, red: 1, green: 150 / 255, blue: 97 / 255, opacity: 1)
+    static let accentHighlight = Color(.sRGB, red: 220 / 255, green: 100 / 255, blue: 50 / 255, opacity: 1)
     /// 深色外观的选中面：略带暖意的中性灰。低饱和的橙色铺在深色底上会发棕发闷，橙色只留给文字
     private static let darkSelected = NSColor(srgbRed: 0.27, green: 0.258, blue: 0.25, alpha: 1)
     /// 小面积选中态（选中节点行、主操作按钮）：浅色外观浅橙底 + 深橙文字（对比度约 5:1）
@@ -55,10 +57,10 @@ enum Theme {
     static let selectedSurface = Color(nsColor: NSColor(name: nil) { a in
         a.isDark ? darkSelected : .white
     })
-    /// 已开启的开关卡片：比 OrangePulse 略深的实心橙渐变，保证白字对比度
+    /// 已开启的开关卡片：与 accentColor 相近的深橙渐变，保证白字对比度
     static let activeTileGradient = LinearGradient(
-        colors: [Color(.sRGB, red: 212 / 255, green: 82 / 255, blue: 24 / 255, opacity: 1),
-                 Color(.sRGB, red: 194 / 255, green: 70 / 255, blue: 18 / 255, opacity: 1)],
+        colors: [Color(.sRGB, red: 203 / 255, green: 77 / 255, blue: 23 / 255, opacity: 1),
+                 Color(.sRGB, red: 182 / 255, green: 65 / 255, blue: 16 / 255, opacity: 1)],
         startPoint: .top, endPoint: .bottom)
     /// 开关卡片投影：仅浅色外观使用淡橙投影；深色背景上橙色投影会像发光，故不投影
     static let activeTileShadow = Color(nsColor: NSColor(name: nil) { a in
@@ -319,10 +321,12 @@ struct Tag: View {
             Text(text)
         }
         .font(.caption2.weight(.medium))
+        .lineLimit(1)
         .foregroundStyle(tint)
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
         .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
+        .fixedSize()
     }
 }
 
