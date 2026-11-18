@@ -473,14 +473,27 @@ struct PanelRow<Trailing: View>: View {
 
 extension View {
     /// 设置行内下拉列表：统一固定宽度并靠右对齐
-    @ViewBuilder
     func panelPicker(width: CGFloat = PanelMetrics.fieldWidth) -> some View {
-        let picker = labelsHidden()
-        if #available(macOS 26, *) {
-            picker.buttonSizing(.flexible).frame(width: width, alignment: .trailing)
-        } else {
-            picker.frame(width: width, alignment: .trailing)
+        modifier(PanelPickerModifier(width: width))
+    }
+}
+
+private struct PanelPickerModifier: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+    var width: CGFloat
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        let picker = content.labelsHidden()
+        Group {
+            if #available(macOS 26, *) {
+                picker.buttonSizing(.flexible).frame(width: width, alignment: .trailing)
+            } else {
+                picker.frame(width: width, alignment: .trailing)
+            }
         }
+        // 切换颜色模式时原生弹出按钮会丢掉 tint、退回系统强调色，随外观重建以重新应用
+        .id(colorScheme)
     }
 }
 

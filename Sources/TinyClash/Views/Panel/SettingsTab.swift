@@ -10,15 +10,11 @@ struct SettingsTab: View {
     @State private var appliedTunDNSServer = ""
 
     var body: some View {
-        Group {
-            if editingBypass {
-                BypassPage(back: { editingBypass = false })
-            } else {
-                root
-            }
+        if editingBypass {
+            BypassPage(back: { editingBypass = false })
+        } else {
+            root
         }
-        .accentColor(Theme.settingsControlTint)
-        .tint(Theme.settingsControlTint)
     }
 
     private func applyDNSIfNeeded() {
@@ -33,53 +29,42 @@ struct SettingsTab: View {
             VStack(alignment: .leading, spacing: Theme.Space.l) {
                 PanelSection(title: "通用") {
                     PanelRow(title: "颜色模式") {
-                        Picker("颜色模式", selection: $state.appearanceMode) {
-                            ForEach(AppearanceMode.allCases) { mode in
-                                Image(systemName: mode.icon)
-                                    .accessibilityLabel(mode.title)
-                                    .tag(mode)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                        .controlSize(.small)
-                        .fixedSize()
-                        .help(state.appearanceMode.title)
+                        AppearancePicker(selection: $state.appearanceMode)
                     }
                     PanelRow(title: "登录时启动") {
                         if state.launchAtLoginNeedsApproval {
                             Button("去允许…") { SMAppService.openSystemSettingsLoginItems() }
-                                .controlSize(.small)
+                                .buttonStyle(.settingsAction)
                                 .help("已注册登录项，需在「系统设置 → 通用 → 登录项」中允许")
                         }
                         Toggle("登录时启动", isOn: Binding(get: { state.launchAtLogin }, set: { state.launchAtLogin = $0 }))
-                            .labelsHidden().toggleStyle(.switch).controlSize(.small)
+                            .labelsHidden().toggleStyle(.settingsSwitch)
                     }
                     PanelRow(title: "菜单栏显示网速") {
-                        Toggle("菜单栏显示网速", isOn: $state.showSpeedInMenuBar).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                        Toggle("菜单栏显示网速", isOn: $state.showSpeedInMenuBar).labelsHidden().toggleStyle(.settingsSwitch)
                     }
                     PanelRow(title: "切换节点时断开旧连接") {
-                        Toggle("切换节点时断开旧连接", isOn: $state.closeConnectionsOnSwitch).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                        Toggle("切换节点时断开旧连接", isOn: $state.closeConnectionsOnSwitch).labelsHidden().toggleStyle(.settingsSwitch)
                     }
                     PanelRow(title: "全局快捷键") {
-                        Toggle("全局快捷键", isOn: $state.globalHotKeysEnabled).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                        Toggle("全局快捷键", isOn: $state.globalHotKeysEnabled).labelsHidden().toggleStyle(.settingsSwitch)
                             .help("⌃⌥⌘S 切换系统代理，⌃⌥⌘T 切换 TUN，⌃⌥⌘M 切换代理模式")
                     }
                     PanelRow(title: "允许局域网连接") {
                         Toggle("允许局域网连接", isOn: Binding(get: { state.runtime?.allowLan ?? false },
                                                  set: { v in Task { await state.setAllowLan(v) } }))
-                            .labelsHidden().toggleStyle(.switch).controlSize(.small)
+                            .labelsHidden().toggleStyle(.settingsSwitch)
                             .disabled(!state.isRunning)
                     }
                     PanelRow(title: "通过代理更新订阅") {
-                        Toggle("通过代理更新订阅", isOn: $state.subscriptionViaProxy).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                        Toggle("通过代理更新订阅", isOn: $state.subscriptionViaProxy).labelsHidden().toggleStyle(.settingsSwitch)
                     }
                     PanelRow(title: "版本更新", divider: false) {
                         Text(state.appVersionText)
                             .font(Theme.numeral(12, weight: .regular)).foregroundStyle(.secondary)
                         if let update = state.availableUpdate {
                             Button("下载 v\(update.version)") { NSWorkspace.shared.open(update.htmlURL) }
-                                .controlSize(.small)
+                                .buttonStyle(.settingsAction)
                                 .help("在 GitHub 打开 v\(update.version) 的发布页")
                         }
                         dataAction("检查更新", id: "update", disabled: false) {
@@ -92,12 +77,12 @@ struct SettingsTab: View {
                     PanelRow(title: "内核授权") {
                         if state.isPrivileged {
                             Text("已授权").font(.callout).foregroundStyle(Theme.active)
-                            Button("撤销") { Task { await state.revokePrivilege() } }.controlSize(.small)
+                            Button("撤销") { Task { await state.revokePrivilege() } }.buttonStyle(.settingsAction)
                         } else {
                             Button("授权…") {
                                 Task { if await state.grantPrivilege(), state.isRunning { await state.restartCore() } }
                             }
-                            .controlSize(.small)
+                            .buttonStyle(.settingsAction)
                         }
                     }
                     PanelRow(title: "协议栈") {
@@ -110,7 +95,7 @@ struct SettingsTab: View {
                         .panelPicker(width: 120)
                     }
                     PanelRow(title: "接管系统 DNS", divider: state.tunSetDNS) {
-                        Toggle("接管系统 DNS", isOn: $state.tunSetDNS).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                        Toggle("接管系统 DNS", isOn: $state.tunSetDNS).labelsHidden().toggleStyle(.settingsSwitch)
                     }
                     if state.tunSetDNS {
                         PanelRow(title: "DNS 服务器", divider: false) {
@@ -200,9 +185,52 @@ extension SettingsTab {
                 .opacity(running ? 0 : 1)
                 .overlay { if running { ProgressView().controlSize(.mini) } }
         }
-        .controlSize(.small)
+        .buttonStyle(.settingsAction)
         .disabled(disabled || runningAction != nil)
         .accessibilityLabel(running ? "\(title)，进行中" : title)
+    }
+}
+
+/// 颜色模式切换：内凹轨道 + 与操作按钮同色的淡橙选中块，选中块在选项间滑动
+private struct AppearancePicker: View {
+    @Binding var selection: AppearanceMode
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var namespace
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(AppearanceMode.allCases) { mode in
+                let selected = mode == selection
+                let shape = RoundedRectangle(cornerRadius: Theme.Radius.chip - 1, style: .continuous)
+                Button { selection = mode } label: {
+                    Image(systemName: mode.icon)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(selected ? AnyShapeStyle(Theme.settingsActionForeground) : AnyShapeStyle(.secondary))
+                        .frame(width: 28, height: 20)
+                        .background {
+                            if selected {
+                                shape.fill(Theme.settingsControlTint.opacity(0.2))
+                                    .matchedGeometryEffect(id: "selection", in: namespace)
+                            }
+                        }
+                        .contentShape(shape)
+                        .hoverHighlight(cornerRadius: Theme.Radius.chip - 1, enabled: !selected)
+                }
+                .buttonStyle(PressableStyle())
+                .help(mode.title)
+                .accessibilityLabel(mode.title)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .padding(2)
+        .background(Theme.inset, in: RoundedRectangle(cornerRadius: Theme.Radius.chip + 1, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.chip + 1, style: .continuous)
+                .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
+        )
+        .animation(reduceMotion ? nil : .spring(response: 0.26, dampingFraction: 0.82), value: selection)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("颜色模式")
     }
 }
 
@@ -238,7 +266,7 @@ private struct BypassPage: View {
                     Text("每行一个，支持通配符与 CIDR").font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Button("恢复默认") { draft = SystemProxy.defaultBypass.joined(separator: "\n") }
-                        .controlSize(.small)
+                        .buttonStyle(.settingsAction)
                 }
             }
             .padding(14)

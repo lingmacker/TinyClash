@@ -41,10 +41,16 @@ enum Theme {
     /// 主强调橙 #CB4D17，深饱和暖橙。
     private static let accentColor = NSColor(srgbRed: 203 / 255, green: 77 / 255, blue: 23 / 255, alpha: 1)
     static let accent = Color(nsColor: accentColor)
-    /// 原生控件在深色外观下会压暗填色，补偿约 20% 亮度使渲染结果接近 accentColor。
-    /// 蓝色通道须压低，否则偏棕橙。
-    static let settingsControlTint = Color(nsColor: NSColor(name: nil) { a in
-        a.isDark ? NSColor(srgbRed: 240 / 255, green: 96 / 255, blue: 28 / 255, alpha: 1) : accentColor
+    /// 设置页原生控件沿用原版 OrangePulse 橙 #F57B3F。
+    static let settingsControlTint = Color(nsColor: settingsTintColor)
+    private static let settingsTintColor = NSColor(srgbRed: 245 / 255, green: 123 / 255, blue: 63 / 255, alpha: 1)
+    /// 设置页操作按钮文字：深色外观直接用 #F57B3F；浅色外观压深到 #B0480E，保证白底上对比度
+    static let settingsActionForeground = Color(nsColor: NSColor(name: nil) { a in
+        a.isDark ? settingsTintColor : NSColor(srgbRed: 176 / 255, green: 72 / 255, blue: 14 / 255, alpha: 1)
+    })
+    /// 设置页开关关闭时的轨道
+    static let settingsSwitchOffTrack = Color(nsColor: NSColor(name: nil) { a in
+        a.isDark ? NSColor(white: 1, alpha: 0.16) : NSColor(white: 0, alpha: 0.12)
     })
     static let accentHighlight = Color(.sRGB, red: 220 / 255, green: 100 / 255, blue: 50 / 255, opacity: 1)
     /// 深色外观的选中面：略带暖意的中性灰。低饱和的橙色铺在深色底上会发棕发闷，橙色只留给文字
@@ -274,6 +280,64 @@ struct PressableStyle: ButtonStyle {
             .opacity(configuration.isPressed ? 0.85 : 1)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
     }
+}
+
+/// 设置页开关。菜单栏面板所在的 App 通常不是激活状态，原生开关会按非激活外观画成灰滑块、暗橙轨道，
+/// 所以这里自绘，颜色不随窗口激活状态变化
+struct SettingsSwitchStyle: ToggleStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        let on = configuration.isOn
+        Capsule()
+            .fill(on ? Theme.settingsControlTint : Theme.settingsSwitchOffTrack)
+            .frame(width: 32, height: 18)
+            .overlay(alignment: on ? .trailing : .leading) {
+                Circle()
+                    .fill(.white)
+                    .shadow(color: .black.opacity(0.25), radius: 1, y: 0.5)
+                    .padding(2)
+            }
+            .contentShape(Capsule())
+            .opacity(isEnabled ? 1 : 0.45)
+            .onTapGesture { if isEnabled { configuration.isOn.toggle() } }
+            .animation(reduceMotion ? nil : .spring(response: 0.22, dampingFraction: 0.8), value: on)
+            // 辅助功能沿用原生开关的语义和标签
+            .accessibilityRepresentation {
+                Toggle(isOn: configuration.$isOn) { configuration.label }
+            }
+    }
+}
+
+extension ToggleStyle where Self == SettingsSwitchStyle {
+    static var settingsSwitch: SettingsSwitchStyle { SettingsSwitchStyle() }
+}
+
+/// 设置页行内操作按钮：橙字 + 淡橙底，原因同 SettingsSwitchStyle
+struct SettingsActionStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.callout)
+            .foregroundStyle(isEnabled ? AnyShapeStyle(Theme.settingsActionForeground) : AnyShapeStyle(.tertiary))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
+                    .fill(isEnabled ? AnyShapeStyle(Theme.settingsControlTint.opacity(configuration.isPressed ? 0.26 : 0.15))
+                                    : AnyShapeStyle(Theme.inset))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == SettingsActionStyle {
+    static var settingsAction: SettingsActionStyle { SettingsActionStyle() }
 }
 
 struct ToolbarActionStyle: ViewModifier {

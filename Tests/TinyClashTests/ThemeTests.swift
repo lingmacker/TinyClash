@@ -4,15 +4,25 @@ import XCTest
 @testable import TinyClash
 
 final class ThemeTests: XCTestCase {
-    func testAccentUsesLightenedOrangePulsePalette() throws {
-        let accent = try XCTUnwrap(NSColor(Theme.accent).usingColorSpace(.sRGB))
-        XCTAssertEqual(accent.redComponent, 245 / 255, accuracy: 0.0001)
-        XCTAssertEqual(accent.greenComponent, 123 / 255, accuracy: 0.0001)
-        XCTAssertEqual(accent.blueComponent, 63 / 255, accuracy: 0.0001)
-        let highlight = try XCTUnwrap(NSColor(Theme.accentHighlight).usingColorSpace(.sRGB))
-        XCTAssertEqual(highlight.redComponent, 1, accuracy: 0.0001)
-        XCTAssertEqual(highlight.greenComponent, 150 / 255, accuracy: 0.0001)
-        XCTAssertEqual(highlight.blueComponent, 97 / 255, accuracy: 0.0001)
+    func testSettingsKeepsOriginalAccentWithoutChangingPanelPalette() throws {
+        let palette: [(Color, CGFloat, CGFloat, CGFloat)] = [
+            (Theme.settingsControlTint, 245, 123, 63),
+            (Theme.accent, 203, 77, 23),
+            (Theme.accentHighlight, 220, 100, 50)
+        ]
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            let appearance = try XCTUnwrap(NSAppearance(named: name))
+            for (token, red, green, blue) in palette {
+                var resolved: NSColor?
+                appearance.performAsCurrentDrawingAppearance {
+                    resolved = NSColor(token).usingColorSpace(.sRGB)
+                }
+                let color = try XCTUnwrap(resolved)
+                XCTAssertEqual(color.redComponent, red / 255, accuracy: 0.0001)
+                XCTAssertEqual(color.greenComponent, green / 255, accuracy: 0.0001)
+                XCTAssertEqual(color.blueComponent, blue / 255, accuracy: 0.0001)
+            }
+        }
     }
 
     func testStatusAndSelectedControlsMaintainReadableContrastInBothAppearances() throws {
@@ -26,7 +36,8 @@ final class ThemeTests: XCTestCase {
         }
         for name in [NSAppearance.Name.aqua, .darkAqua] {
             let appearance = try XCTUnwrap(NSAppearance(named: name))
-            for (foreground, background) in [(Theme.statusActive, Theme.statusActiveFill),
+            for (foreground, background) in [(Theme.settingsActionForeground, Theme.panel),
+                                             (Theme.statusActive, Theme.statusActiveFill),
                                              (Theme.accentForeground, Theme.controlFill),
                                              (Theme.accentForeground, Theme.selectedSurface)] {
                 var colors: [NSColor] = []
