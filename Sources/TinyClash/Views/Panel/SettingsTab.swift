@@ -31,13 +31,16 @@ struct SettingsTab: View {
                     PanelRow(title: "颜色模式") {
                         Picker("颜色模式", selection: $state.appearanceMode) {
                             ForEach(AppearanceMode.allCases) { mode in
-                                Text(mode.title).tag(mode)
+                                Image(systemName: mode.icon)
+                                    .accessibilityLabel(mode.title)
+                                    .tag(mode)
                             }
                         }
                         .pickerStyle(.segmented)
                         .labelsHidden()
                         .controlSize(.small)
                         .fixedSize()
+                        .help(state.appearanceMode.title)
                     }
                     PanelRow(title: "登录时启动") {
                         if state.launchAtLoginNeedsApproval {
@@ -174,6 +177,8 @@ struct SettingsTab: View {
             }
             .padding(14)
         }
+        .accentColor(Theme.settingsControlTint)
+        .tint(Theme.settingsControlTint)
     }
 }
 

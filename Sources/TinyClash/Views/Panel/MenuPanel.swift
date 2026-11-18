@@ -127,6 +127,7 @@ struct MenuPanel: View {
         .background(Theme.canvas.ignoresSafeArea())
         .accentColor(Theme.accent)
         .tint(Theme.accent)
+        .environment(\.controlActiveState, .key)
         // 窗口打开时 AppKit 会把焦点给第一个输入框并全选文字，这里清掉，避免误输入
         .onAppear {
             clearFocus()

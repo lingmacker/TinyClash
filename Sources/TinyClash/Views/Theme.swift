@@ -41,6 +41,9 @@ enum Theme {
     /// 基于 OrangePulse 渐变，向浅色端略微提亮的暖橙色。
     private static let accentColor = NSColor(srgbRed: 245 / 255, green: 123 / 255, blue: 63 / 255, alpha: 1)
     static let accent = Color(nsColor: accentColor)
+    static let settingsControlTint = Color(nsColor: NSColor(name: nil) { a in
+        a.isDark ? NSColor(srgbRed: 1, green: 125 / 255, blue: 24 / 255, alpha: 1) : accentColor
+    })
     static let accentHighlight = Color(.sRGB, red: 1, green: 150 / 255, blue: 97 / 255, opacity: 1)
     /// 深色外观的选中面：略带暖意的中性灰。低饱和的橙色铺在深色底上会发棕发闷，橙色只留给文字
     private static let darkSelected = NSColor(srgbRed: 0.27, green: 0.258, blue: 0.25, alpha: 1)
