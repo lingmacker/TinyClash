@@ -257,8 +257,7 @@ struct MenuPanel: View {
                         Image(systemName: t.icon).font(.system(size: 13, weight: .medium))
                         Text(t.title).font(.caption2.weight(.medium))
                     }
-                    // 当前标签用中性凸起面 + 暖橙文字；实心橙只留给「已开启」的开关
-                    .foregroundStyle(tab == t ? AnyShapeStyle(Theme.accentForeground) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(tab == t ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 6)
                     .matchedGeometryEffect(id: t, in: tabNamespace)

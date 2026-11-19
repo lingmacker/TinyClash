@@ -99,7 +99,7 @@ private struct ProfileCard: View {
 
     var body: some View {
         let selected = state.selectedProfileID == profile.id
-        HStack(alignment: .top, spacing: 8) {
+        ZStack(alignment: .topTrailing) {
             Button {
                 guard !selected else { return }
                 Task { await state.selectProfile(profile.id) }
@@ -115,6 +115,7 @@ private struct ProfileCard: View {
                                 .help("此订阅在本地改过，已暂停自动更新；手动更新会覆盖修改（覆盖前自动备份）")
                         }
                     }
+                    .padding(.trailing, 56) // 仅标题为右上角操作留位，流量行使用整宽
                     HStack(spacing: Theme.Space.s) {
                         TimelineView(.periodic(from: .now, by: 60)) { context in
                             Text("更新于 \(Format.updateAge(profile.updatedAt, now: context.date))")
