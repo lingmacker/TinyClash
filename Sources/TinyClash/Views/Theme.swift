@@ -243,6 +243,20 @@ extension View {
             .background(Theme.inset, in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
     }
 
+    @ViewBuilder
+    func selectionStretch(on selection: some Equatable, reduceMotion: Bool, amplitude: CGFloat = 0.14) -> some View {
+        if reduceMotion {
+            self
+        } else {
+            keyframeAnimator(initialValue: CGFloat.zero, trigger: selection) { indicator, stretch in
+                indicator.scaleEffect(x: 1 + stretch, y: 1 - stretch / 2)
+            } keyframes: { _ in
+                CubicKeyframe(amplitude, duration: 0.08)
+                SpringKeyframe(0, duration: 0.24, spring: .snappy)
+            }
+        }
+    }
+
     /// 可点击面板的悬停反馈
     func hoverHighlight(cornerRadius: CGFloat = Theme.Radius.panel, enabled: Bool = true) -> some View {
         modifier(HoverHighlight(cornerRadius: cornerRadius, enabled: enabled))

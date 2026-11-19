@@ -261,16 +261,7 @@ struct MenuPanel: View {
                     .foregroundStyle(tab == t ? AnyShapeStyle(Theme.accentForeground) : AnyShapeStyle(.secondary))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 6)
-                    .background {
-                        if tab == t {
-                            RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
-                                .fill(Theme.selectedSurface)
-                                .overlay(RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
-                                    .strokeBorder(Theme.panelBorder, lineWidth: 0.5))
-                                .shadow(color: .black.opacity(0.06), radius: 1.5, y: 1)
-                                .matchedGeometryEffect(id: "tabSelection", in: tabNamespace)
-                        }
-                    }
+                    .matchedGeometryEffect(id: t, in: tabNamespace)
                     .contentShape(Rectangle())
                     .hoverHighlight(cornerRadius: Theme.Radius.tile, enabled: tab != t)
                 }
@@ -281,7 +272,17 @@ struct MenuPanel: View {
                 .accessibilityAddTraits(tab == t ? .isSelected : [])
             }
         }
-        .animation(reduceMotion ? nil : .spring(response: 0.26, dampingFraction: 0.82), value: tab)
+        .background {
+            let shape = RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
+            shape.fill(Theme.selectedSurface)
+                .overlay(shape.strokeBorder(Theme.panelBorder, lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.06), radius: 1.5, y: 1)
+                .selectionStretch(on: tab, reduceMotion: reduceMotion)
+                .matchedGeometryEffect(id: tab, in: tabNamespace, isSource: false)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+        .animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.8), value: tab)
     }
 }
 

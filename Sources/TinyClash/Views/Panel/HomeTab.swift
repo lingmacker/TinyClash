@@ -217,6 +217,7 @@ private struct ModePicker: View {
             RoundedRectangle(cornerRadius: Theme.Radius.tile - 2, style: .continuous)
                 .fill(Theme.selectedSurface)
                 .shadow(color: .black.opacity(0.08), radius: 1.5, y: 1)
+                .selectionStretch(on: selection, reduceMotion: reduceMotion, amplitude: 0.28)
                 .matchedGeometryEffect(id: selection, in: namespace, isSource: false)
                 .allowsHitTesting(false)
         }
@@ -226,7 +227,7 @@ private struct ModePicker: View {
             RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
                 .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
         )
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: selection)
+        .animation(reduceMotion ? nil : .spring(duration: 0.24, bounce: 0.16), value: selection)
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.5)
     }
