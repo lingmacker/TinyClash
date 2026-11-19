@@ -185,6 +185,8 @@ private struct TrafficPanel: View {
 }
 
 private struct ModePicker: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var namespace
     var selection: ProxyMode
     var enabled: Bool
     var onSelect: (ProxyMode) -> Void
@@ -202,11 +204,15 @@ private struct ModePicker: View {
                         .foregroundStyle(selected ? AnyShapeStyle(Theme.accentForeground) : AnyShapeStyle(.secondary))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 5)
-                        .background(
-                            RoundedRectangle(cornerRadius: Theme.Radius.tile - 2, style: .continuous)
-                                .fill(selected ? AnyShapeStyle(Theme.selectedSurface) : AnyShapeStyle(.clear))
-                                .shadow(color: .black.opacity(selected ? 0.08 : 0), radius: 1.5, y: 1)
-                        )
+                        .background {
+                            if selected {
+                                RoundedRectangle(cornerRadius: Theme.Radius.tile - 2, style: .continuous)
+                                    .fill(Theme.selectedSurface)
+                                    .shadow(color: .black.opacity(0.08), radius: 1.5, y: 1)
+                                    .matchedGeometryEffect(id: "selection", in: namespace)
+                                    .transition(.identity)
+                            }
+                        }
                         .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.tile - 2, style: .continuous))
                         .hoverHighlight(cornerRadius: Theme.Radius.tile - 2)
                 }
@@ -221,6 +227,7 @@ private struct ModePicker: View {
             RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
                 .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
         )
+        .animation(reduceMotion ? nil : .spring(response: 0.26, dampingFraction: 0.9), value: selection)
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.5)
     }

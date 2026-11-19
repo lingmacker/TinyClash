@@ -159,16 +159,18 @@ private struct ProfileCard: View {
             .accessibilityAddTraits(selected ? .isSelected : [])
             .help(selected ? "当前使用的配置" : "点击切换到此配置")
             HStack(spacing: 8) {
-                if isUpdatingSubscription || isUpdatingNodes {
-                    ProgressView().controlSize(.mini)
-                } else if profile.kind == .remote {
-                    Button(action: triggerSubscriptionUpdate) {
-                        Image(systemName: "arrow.clockwise")
+                Color.clear.frame(width: 16, height: 16).overlay {
+                    if isUpdatingSubscription || isUpdatingNodes {
+                        ProgressView().controlSize(.mini)
+                    } else if profile.kind == .remote {
+                        Button(action: triggerSubscriptionUpdate) {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(!state.canUpdateProfile(profile.id))
+                        .help("更新订阅")
+                        .accessibilityLabel("更新订阅")
                     }
-                    .buttonStyle(.borderless)
-                    .disabled(!state.canUpdateProfile(profile.id))
-                    .help("更新订阅")
-                    .accessibilityLabel("更新订阅")
                 }
                 menu
             }

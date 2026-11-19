@@ -127,7 +127,7 @@ struct RulesTab: View {
             .padding(14)
             if rules.count > 10 || !search.isEmpty {
                 TextField("搜索规则内容、类型或策略", text: $search)
-                    .textFieldStyle(.roundedBorder)
+                    .panelField(alignment: .leading)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 10)
                     .accessibilityLabel("搜索规则")
