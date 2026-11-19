@@ -49,12 +49,13 @@ struct ProfilesTab: View {
                 .toolbarAction()
                 .help("查看全部节点")
                 Menu {
+                    Button("添加订阅…") { adding = true }
                     Button("导入 YAML 文件…") { Task { await state.importProfileFromFile() } }
                     Button("新建空白配置") {
                         if let p = state.createBlankProfile() { NSWorkspace.shared.open(p.fileURL) }
                     }
                 } label: {
-                    Label("导入", systemImage: "square.and.arrow.down")
+                    Label("添加", systemImage: "plus")
                 }
                 // borderless 按钮样式下菜单标签会被 AppKit 按系统字号重绘；plain 样式才沿用
                 // 这里的 caption 字号，与旁边的工具栏按钮一样大
@@ -63,11 +64,7 @@ struct ProfilesTab: View {
                 .menuIndicator(.hidden)
                 .fixedSize()
                 .toolbarAction(prominent: true)
-                .help("导入本地 YAML 或新建空白配置")
-                Button { adding = true } label: {
-                    Label("添加订阅", systemImage: "plus")
-                }
-                .toolbarAction(prominent: true)
+                .help("添加订阅、导入本地 YAML 或新建空白配置")
             }
             .font(Theme.toolbarFont)
             .buttonStyle(.borderless)
