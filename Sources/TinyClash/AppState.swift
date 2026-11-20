@@ -1638,6 +1638,7 @@ final class AppState {
                     try Task.checkCancellation()
                     failed.append("\(provider.name)：\(error.localizedDescription)")
                 }
+                updatingRuleProviders.remove(provider.name)
             }
             guard self.api === api, selectedProfileID == profile.id, isRunning else { return }
             if !failed.isEmpty { errorMessage = "以下规则集更新失败：\(failed.joined(separator: "；"))" }

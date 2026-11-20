@@ -123,7 +123,8 @@ struct RuleProvidersPage: View {
     private func providerRow(_ definition: RuleProviderDefinition) -> some View {
         let runtime = providers[definition.name]
         return Button { route = .edit(definition) } label: {
-            RuleProviderCard(definition: definition, runtime: runtime)
+            RuleProviderCard(definition: definition, runtime: runtime,
+                             isUpdating: state.updatingRuleProviders.contains(definition.name))
                 .hoverHighlight(cornerRadius: Theme.Radius.tile)
         }
         .buttonStyle(PressableStyle())
@@ -216,6 +217,7 @@ struct RuleProvidersPage: View {
 struct RuleProviderCard: View {
     var definition: RuleProviderDefinition
     var runtime: ProviderItem?
+    var isUpdating: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -223,8 +225,13 @@ struct RuleProviderCard: View {
                 Text(definition.name).font(.callout.weight(.semibold))
                     .lineLimit(1).truncationMode(.middle).help(definition.name)
                 Spacer(minLength: 4)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
+                if isUpdating {
+                    ProgressView().controlSize(.mini)
+                        .accessibilityLabel("正在更新规则集")
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
+                }
             }
             HStack(spacing: 6) {
                 Tag(text: RuleProviderEditorPage.typeTitle(definition.type), tint: Theme.ruleProviderSourceTint(definition.type))
