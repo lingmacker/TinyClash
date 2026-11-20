@@ -70,9 +70,9 @@ final class ThemeTests: XCTestCase {
         XCTAssertEqual(darkAccent.blueComponent, 63 / 255, accuracy: 0.0001)
 
         let lightAccent = try resolve(Theme.accent, in: .aqua)
-        XCTAssertEqual(lightAccent.redComponent, 224 / 255, accuracy: 0.0001)
-        XCTAssertEqual(lightAccent.greenComponent, 90 / 255, accuracy: 0.0001)
-        XCTAssertEqual(lightAccent.blueComponent, 31 / 255, accuracy: 0.0001)
+        XCTAssertEqual(lightAccent.redComponent, 235 / 255, accuracy: 0.0001)
+        XCTAssertEqual(lightAccent.greenComponent, 103 / 255, accuracy: 0.0001)
+        XCTAssertEqual(lightAccent.blueComponent, 40 / 255, accuracy: 0.0001)
     }
 
     func testStatusAndSelectedControlsMaintainReadableContrastInBothAppearances() throws {
@@ -115,9 +115,10 @@ final class ThemeTests: XCTestCase {
                 XCTAssertEqual(bg.alphaComponent, 1)
             }
             let panel = try resolve(Theme.panel, in: name)
+            let tagAlpha: CGFloat = name == .darkAqua ? 0.12 : 0.10
             for tint in tagTints {
                 let fg = try resolve(tint, in: name)
-                let tagBg = blend(fg, over: panel, alpha: 0.12)
+                let tagBg = blend(fg, over: panel, alpha: tagAlpha)
                 XCTAssertGreaterThanOrEqual(contrast(fg, tagBg), 4.5, "Tag contrast < 4.5 in \(name.rawValue)")
             }
         }

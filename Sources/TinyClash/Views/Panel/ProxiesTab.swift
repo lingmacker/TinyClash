@@ -228,7 +228,7 @@ private struct HealthStrip: View {
             ForEach(members.prefix(limit), id: \.self) { name in
                 let d = state.delay(of: name)
                 Capsule()
-                    .fill(d == nil ? Color.secondary.opacity(0.22) : Theme.latency(d))
+                    .fill(d == nil ? Color.secondary.opacity(0.22) : Theme.latencyDot(d))
                     .frame(width: 6, height: 6)
             }
             if members.count > limit {

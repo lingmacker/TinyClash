@@ -17,10 +17,10 @@ enum Theme {
         static let l: CGFloat = 16
     }
 
-    /// 不透明画布：深色为石墨炭黑，浅色为冷白灰，避免桌面颜色透入菜单栏面板。
+    /// 不透明画布：深色为石墨炭黑，浅色为柔和暖白石 #F5F5F4，与暖橙品牌色自然融合，避免冷灰割裂。
     static let canvas = Color(nsColor: NSColor(name: nil) { a in
         a.isDark ? NSColor(srgbRed: 22 / 255, green: 23 / 255, blue: 26 / 255, alpha: 1)
-                 : NSColor(srgbRed: 244 / 255, green: 245 / 255, blue: 247 / 255, alpha: 1)
+                 : NSColor(srgbRed: 245 / 255, green: 245 / 255, blue: 244 / 255, alpha: 1)
     })
 
     /// 不透明卡片底色：与 AppIcon 石墨底一脉相承，用明度区分画布与内容。
@@ -30,18 +30,18 @@ enum Theme {
 
     /// 卡片细描边，保留克制的层次。
     static let panelBorder = Color(nsColor: NSColor(name: nil) { a in
-        a.isDark ? NSColor(white: 1, alpha: 0.09) : NSColor(white: 0, alpha: 0.07)
+        a.isDark ? NSColor(white: 1, alpha: 0.09) : NSColor(white: 0, alpha: 0.065)
     })
 
     /// 面板内的次级填充（未选中的磁贴、轨道、输入区）
     static let inset = Color(nsColor: NSColor(name: nil) { a in
-        a.isDark ? NSColor(white: 1, alpha: 0.075) : NSColor(white: 0, alpha: 0.05)
+        a.isDark ? NSColor(white: 1, alpha: 0.075) : NSColor(white: 0, alpha: 0.045)
     })
 
     /// 品牌色 OrangePulse（取自 AppIcon 脉冲点 #FF9661 → #F27234）。
-    /// 深色外观直接用高辨识度的 #F57B3F；浅色外观适度加深至 #E05A1F 保持清晰边界（≥3.7:1）。
+    /// 深色外观直接用高辨识度的 #F57B3F；浅色外观用清亮暖橙 #EB6728（≥3.2:1 图形对比度），不发暗发锈。
     private static let darkBrandAccent = NSColor(srgbRed: 245 / 255, green: 123 / 255, blue: 63 / 255, alpha: 1)
-    private static let lightBrandAccent = NSColor(srgbRed: 224 / 255, green: 90 / 255, blue: 31 / 255, alpha: 1)
+    private static let lightBrandAccent = NSColor(srgbRed: 235 / 255, green: 103 / 255, blue: 40 / 255, alpha: 1)
     static let accent = Color(nsColor: NSColor(name: nil) { a in
         a.isDark ? darkBrandAccent : lightBrandAccent
     })
@@ -54,54 +54,59 @@ enum Theme {
     static let settingsActionForeground = accentForeground
     /// 设置页开关关闭时的轨道
     static let settingsSwitchOffTrack = Color(nsColor: NSColor(name: nil) { a in
-        a.isDark ? NSColor(white: 1, alpha: 0.15) : NSColor(white: 0, alpha: 0.12)
+        a.isDark ? NSColor(white: 1, alpha: 0.15) : NSColor(white: 0, alpha: 0.11)
     })
 
     /// 凸起选中面（当前标签、模式滑块、路由终点、颜色模式滑块）：深色用冷冽石墨灰 #2F3137，避免发棕发闷；浅色用纯白。
     static let selectedSurface = Color(nsColor: NSColor(name: nil) { a in
         a.isDark ? NSColor(srgbRed: 47 / 255, green: 49 / 255, blue: 55 / 255, alpha: 1) : .white
     })
-    /// 暖橙轻填底（选中节点卡、设置行内按钮）：浅色为柔白杏 #FFF2EB，深色为深炭暖灰 #2D231E，与橙字均保持 ≥5:1 对比度。
+    /// 暖橙轻填底（浅色开启磁贴、选中节点卡、设置行内按钮）：浅色为清透柔杏白 #FFF5EF，深色为深炭暖灰 #2D231E。
     static let controlFill = Color(nsColor: NSColor(name: nil) { a in
         a.isDark ? NSColor(srgbRed: 45 / 255, green: 35 / 255, blue: 30 / 255, alpha: 1)
-                 : NSColor(srgbRed: 255 / 255, green: 242 / 255, blue: 235 / 255, alpha: 1)
+                 : NSColor(srgbRed: 255 / 255, green: 245 / 255, blue: 239 / 255, alpha: 1)
     })
-    /// 已开启的开关卡片：品牌橙色系立体渐变（#D45218 → #BC4210），保持白字清晰可读。
+    /// 深色外观下已开启开关卡片的立体品牌橙渐变（#D45218 → #BC4210），保持白字清晰可读。
     static let activeTileGradient = LinearGradient(
         colors: [Color(.sRGB, red: 212 / 255, green: 82 / 255, blue: 24 / 255, opacity: 1),
                  Color(.sRGB, red: 188 / 255, green: 66 / 255, blue: 16 / 255, opacity: 1)],
         startPoint: .top, endPoint: .bottom)
-    /// 已开启开关卡片的顶部微高光描边，增强质感层次。
+    /// 浅色外观下已开启开关的图标圆徽：清透饱满的 OrangePulse 品牌橙渐变（#F06E2D → #DC5518）。
+    static let activeBadgeGradient = LinearGradient(
+        colors: [Color(.sRGB, red: 240 / 255, green: 110 / 255, blue: 45 / 255, opacity: 1),
+                 Color(.sRGB, red: 220 / 255, green: 85 / 255, blue: 24 / 255, opacity: 1)],
+        startPoint: .top, endPoint: .bottom)
+    /// 深色外观已开启开关卡片的顶部微高光描边，增强质感层次。
     static let activeTileStroke = LinearGradient(
         colors: [Color.white.opacity(0.24), Color.white.opacity(0.04)],
         startPoint: .top, endPoint: .bottom)
-    /// 开关卡片投影：仅浅色外观使用柔和橙影；深色背景上不发光。
+    /// 浅色外观已开启开关卡片的轻微中性投影，避免橙色发光感。
     static let activeTileShadow = Color(nsColor: NSColor(name: nil) { a in
-        a.isDark ? .clear : NSColor(srgbRed: 212 / 255, green: 82 / 255, blue: 24 / 255, alpha: 0.26)
+        a.isDark ? .clear : NSColor(white: 0, alpha: 0.04)
     })
-    /// 品牌橙文字与小图标：深色 #FF8E53（在画布/卡片/选中面均 ≥5.7:1），浅色 #B8410C（≥5.0:1）。
+    /// 品牌橙文字与小图标：深色 #FF8E53（≥5.7:1），浅色 #BA440F（画布/白卡/轻底/标签均 ≥4.5:1）。
     static let accentForeground = Color(nsColor: NSColor(name: nil) { a in
         a.isDark ? NSColor(srgbRed: 255 / 255, green: 142 / 255, blue: 83 / 255, alpha: 1)
-                 : NSColor(srgbRed: 184 / 255, green: 65 / 255, blue: 12 / 255, alpha: 1)
+                 : NSColor(srgbRed: 186 / 255, green: 68 / 255, blue: 15 / 255, alpha: 1)
     })
 
-    /// 接管状态使用不透明翡翠底色，保持稳定的小字对比度。
+    /// 接管状态使用不透明翡翠底色，浅色清透柔和，深色沉稳克制。
     static let statusActive = Color(nsColor: NSColor(name: nil) { a in
         a.isDark ? NSColor(srgbRed: 155 / 255, green: 232 / 255, blue: 184 / 255, alpha: 1)
-                 : NSColor(srgbRed: 20 / 255, green: 94 / 255, blue: 47 / 255, alpha: 1)
+                 : NSColor(srgbRed: 25 / 255, green: 107 / 255, blue: 58 / 255, alpha: 1)
     })
     static let statusActiveFill = Color(nsColor: NSColor(name: nil) { a in
         a.isDark ? NSColor(srgbRed: 24 / 255, green: 59 / 255, blue: 39 / 255, alpha: 1)
-                 : NSColor(srgbRed: 220 / 255, green: 242 / 255, blue: 228 / 255, alpha: 1)
+                 : NSColor(srgbRed: 230 / 255, green: 245 / 255, blue: 236 / 255, alpha: 1)
     })
 
     static let chartLabel = Color(nsColor: NSColor(name: nil) { a in
         a.isDark ? NSColor(srgbRed: 158 / 255, green: 163 / 255, blue: 173 / 255, alpha: 1)
-                 : NSColor(srgbRed: 91 / 255, green: 96 / 255, blue: 106 / 255, alpha: 1)
+                 : NSColor(srgbRed: 99 / 255, green: 104 / 255, blue: 114 / 255, alpha: 1)
     })
 
     /// 调和后的语义色：深浅外观均针对各自面板底色精确校准（含 12% 标签底均 ≥4.5:1），
-    /// 并与品牌橙（H≈20°）在色相上明确区分（警示偏琥珀金 H≈38°，下载蓝与上传青拉开色距）。
+    /// 浅色降低过激饱和度使白底列表更通透耐看，并与品牌橙（H≈20°）在色相上明确区分。
     private static func adaptive(dark dr: CGFloat, _ dg: CGFloat, _ db: CGFloat,
                                  light lr: CGFloat, _ lg: CGFloat, _ lb: CGFloat) -> Color {
         Color(nsColor: NSColor(name: nil) { a in
@@ -110,17 +115,22 @@ enum Theme {
         })
     }
 
-    static let toolbarHoverForeground = adaptive(dark: 255, 167, 120, light: 152, 50, 7)
-    static let download = adaptive(dark: 77, 163, 255, light: 10, 102, 208)
-    static let upload = adaptive(dark: 50, 210, 196, light: 0, 118, 123)
-    static let active = adaptive(dark: 69, 212, 131, light: 21, 118, 54)
-    static let warning = adaptive(dark: 245, 180, 59, light: 153, 94, 0)
-    private static let indigo = adaptive(dark: 142, 144, 255, light: 78, 72, 198)
-    private static let purple = adaptive(dark: 196, 132, 250, light: 135, 56, 184)
-    private static let pink = adaptive(dark: 248, 114, 157, light: 192, 34, 90)
+    static let toolbarHoverForeground = adaptive(dark: 255, 167, 120, light: 155, 54, 9)
+    static let download = adaptive(dark: 77, 163, 255, light: 26, 104, 196)
+    static let upload = adaptive(dark: 50, 210, 196, light: 11, 117, 116)
+    static let active = adaptive(dark: 69, 212, 131, light: 25, 123, 64)
+    static let warning = adaptive(dark: 245, 180, 59, light: 159, 92, 0)
+    private static let indigo = adaptive(dark: 142, 144, 255, light: 82, 76, 194)
+    private static let purple = adaptive(dark: 196, 132, 250, light: 126, 70, 184)
+    private static let pink = adaptive(dark: 248, 114, 157, light: 184, 50, 101)
     /// 警示文字与图标统一使用琥珀金，与品牌橙色相明确区分且双外观均 ≥4.5:1
     static let warningText = warning
-    static let failure = adaptive(dark: 255, 100, 103, light: 204, 31, 44)
+    static let failure = adaptive(dark: 255, 100, 103, light: 201, 42, 53)
+
+    /// 延迟小圆点与健康条用更明快的宝石色调，避免浅色外观下 6pt 琥珀点发暗发棕
+    private static let activeDot = adaptive(dark: 69, 212, 131, light: 39, 174, 96)
+    private static let warningDot = adaptive(dark: 245, 180, 59, light: 232, 152, 12)
+    private static let failureDot = adaptive(dark: 255, 100, 103, light: 224, 62, 71)
 
     /// 策略名的颜色：直连绿、拒绝红，其余用主文字色。橙色只表示「已开启 / 已选中」，不给普通策略名
     static func policyTint(_ policy: String) -> Color {
@@ -189,6 +199,17 @@ enum Theme {
         case ..<500: return active
         case ..<1000: return warning
         default: return failure
+        }
+    }
+
+    /// 延迟圆点与健康条颜色：浅色外观更清亮明快，避免小圆点发暗
+    static func latencyDot(_ ms: Int?) -> Color {
+        guard let ms else { return .secondary }
+        switch ms {
+        case 0: return failureDot
+        case ..<500: return activeDot
+        case ..<1000: return warningDot
+        default: return failureDot
         }
     }
 
@@ -356,7 +377,7 @@ struct SettingsActionStyle: ButtonStyle {
                         shape.fill(Theme.accent.opacity(isEnabled && configuration.isPressed ? 0.14 : 0))
                     )
                     .overlay(
-                        shape.strokeBorder(isEnabled ? Theme.accent.opacity(0.28) : .clear, lineWidth: 0.5)
+                        shape.strokeBorder(isEnabled ? Theme.accent.opacity(0.24) : .clear, lineWidth: 0.5)
                     )
             )
             .contentShape(shape)
@@ -404,6 +425,7 @@ struct LoadingHint: View {
 
 /// 小标签（类型、来源）；警示类标签带图标，不只靠颜色区分
 struct Tag: View {
+    @Environment(\.colorScheme) private var colorScheme
     var text: String
     var tint: Color = .secondary
     var icon: String? = nil
@@ -418,7 +440,8 @@ struct Tag: View {
         .foregroundStyle(tint)
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
-        .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
+        .background(tint.opacity(colorScheme == .dark ? 0.12 : 0.10),
+                    in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
         .fixedSize()
     }
 }
@@ -432,7 +455,7 @@ struct LatencyLabel: View {
     var body: some View {
         if let ms {
             HStack(spacing: 4) {
-                Circle().fill(Theme.latency(ms)).frame(width: 6, height: 6)
+                Circle().fill(Theme.latencyDot(ms)).frame(width: 6, height: 6)
                 Text(Theme.latencyText(ms)).font(font).foregroundStyle(Theme.latency(ms))
             }
         } else if let placeholder {

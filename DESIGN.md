@@ -2,13 +2,13 @@
 name: TinyClash
 description: Stash-inspired, restrained native macOS menu-bar controls for mihomo.
 colors:
-  canvas-light: "rgb(95.7% 96.1% 96.9%)"
+  canvas-light: "rgb(96.1% 96.1% 95.7%)"
   canvas-dark: "rgb(8.6% 9.0% 10.2%)"
   panel-light: "rgb(100% 100% 100%)"
   panel-dark: "rgb(12.9% 13.3% 14.9%)"
-  inset-light: "rgb(0% 0% 0% / 5%)"
+  inset-light: "rgb(0% 0% 0% / 4.5%)"
   inset-dark: "rgb(100% 100% 100% / 7.5%)"
-  chart-label-light: "rgb(35.7% 37.6% 41.6%)"
+  chart-label-light: "rgb(38.8% 40.8% 44.7%)"
   chart-label-dark: "rgb(62.0% 63.9% 67.8%)"
 typography:
   title:
@@ -101,19 +101,20 @@ The neutral palette separates canvas, panel, and inset fill; OrangePulse orange 
 
 ### Primary
 
-- **OrangePulse brand ramp** (derived from `03 OrangePulse.svg`: `#FF9661` → `#F27234`, hue ~20°): unified across the entire panel so settings controls, tabs, mode selection, toolbar primaries, and profile/node selections speak one brand voice. `Theme.accent` adapts to `#F57B3F` in dark appearance and `#E05A1F` in light appearance for graphical controls (switches, borders, checkmarks, usage bars, native pickers); `Theme.accentHighlight` (`#FF9661`) and `Theme.brandPulseBottom` (`#F27234`) reproduce the AppIcon pulse dot in `TinyClashBadge`. Small text and icon+label actions (active tab, selected mode segment, list-toolbar primaries, subpage 返回/保存/添加, settings inline actions, selected node names, outbound proxy nodes) use `Theme.accentForeground`: luminous `#FF8E53` in dark appearance and deep `#B8410C` in light appearance, clearing ≥4.6:1 contrast across canvas, panel, selected surfaces, warm control fills, and 12% tags. Toolbar hover lifts to `#FFA778` in dark and deepens to `#983207` in light. The active tab, selected mode segment, appearance picker thumb, and terminal route segment all share `Theme.selectedSurface`: crisp white in light appearance and machined graphite `#2F3137` in dark appearance (avoiding muddy brown tint on dark surfaces). Enabled toggle tiles remain the only solid-color surfaces — solid orange means "on", nothing else: `Theme.activeTileGradient` (`#D45218` → `#BC4210`, white text ≥4.7:1 at midpoint / ≥5.3:1 on subtitle), a subtle 0.5 pt top specular highlight stroke, white content, 20% white icon circle, and a soft 26% accent shadow in light appearance only. Selected node cards and settings inline action buttons share opaque `Theme.controlFill`: warm ivory-apricot `#FFF2EB` in light appearance and deep warm-ember charcoal `#2D231E` in dark appearance, paired with a fine accent border and `Theme.accentForeground` text.
+- **OrangePulse brand ramp** (derived from `03 OrangePulse.svg`: `#FF9661` → `#F27234`, hue ~20°): unified across the entire panel so settings controls, tabs, mode selection, toolbar primaries, and profile/node selections speak one brand voice. `Theme.accent` adapts to `#F57B3F` in dark appearance and clean, fresh `#EB6728` in light appearance for graphical controls (switches, borders, checkmarks, usage bars, native pickers); `Theme.accentHighlight` (`#FF9661`) and `Theme.brandPulseBottom` (`#F27234`) reproduce the AppIcon pulse dot in `TinyClashBadge`. Small text and icon+label actions (active tab, selected mode segment, list-toolbar primaries, subpage 返回/保存/添加, settings inline actions, selected node names, outbound proxy nodes) use `Theme.accentForeground`: luminous `#FF8E53` in dark appearance and warm terracotta-orange `#BA440F` in light appearance, clearing ≥4.5:1 contrast across canvas, panel, selected surfaces, warm control fills, and tags (12% dark / 10% light). Toolbar hover lifts to `#FFA778` in dark and deepens to `#9B3609` in light. The active tab, selected mode segment, appearance picker thumb, and terminal route segment all share `Theme.selectedSurface`: crisp white in light appearance (over warm studio stone `#F5F5F4` canvas) and machined graphite `#2F3137` in dark appearance. Enabled toggle tiles adapt their visual weight to the appearance so they stay clear without overwhelming a bright canvas: in dark appearance they use a solid deep-orange gradient (`Theme.activeTileGradient`, `#D45218` → `#BC4210`, white text ≥4.7:1 at midpoint / ≥5.3:1 on subtitle), a subtle 0.5 pt top specular highlight stroke, white content, and a 20% white icon circle; in light appearance they use soft warm ivory-apricot `Theme.controlFill` (`#FFF5EF`) with a 1 pt 28% `Theme.accent` border, a solid OrangePulse icon badge (`Theme.activeBadgeGradient`, `#F06E2D` → `#DC5518`) with a white glyph, primary title, `Theme.accentForeground` (`#BA440F`) status text, and a subtle neutral lift. Selected node cards and settings inline action buttons share opaque `Theme.controlFill` (`#FFF5EF` light / `#2D231E` dark), paired with a fine accent border and `Theme.accentForeground` text.
 
 ### Secondary
 
-- **Download blue** (`Theme.download`, `#4DA3FF` dark / `#0A66D0` light): download labels, download chart series, TCP tags, domain rule types, and 自动 group tags.
-- **Upload seafoam teal** (`Theme.upload`, `#32D2C4` dark / `#00767B` light): upload labels, upload chart series (deliberately separated in hue from download blue for line readability), UDP tags, 故障转移 groups, and 远程 rule-set tags.
+- **Download blue** (`Theme.download`, `#4DA3FF` dark / `#1A68C4` light): download labels, download chart series, TCP tags, domain rule types, and 自动 group tags.
+- **Upload seafoam teal** (`Theme.upload`, `#32D2C4` dark / `#0B7574` light): upload labels, upload chart series (deliberately separated in hue from download blue for line readability), UDP tags, 故障转移 groups, and 远程 rule-set tags.
 
 ### Tertiary
 
-- **Active emerald** (`Theme.active`, `#45D483` dark / `#157636` light): traffic takeover status, DIRECT, and successful latency readings below 500 ms; harmonized with `StatusBadge` (`#9BE8B8` on `#183B27` dark; `#145E2F` on `#DCF2E4` light).
-- **Warning amber** (`Theme.warning` / `Theme.warningText`, `#F5B43B` dark / `#995E00` light): shifted to golden amber (H≈37°–39°) so warnings, starting/restarting states, expiry notices, and 500–999 ms latency never collide with OrangePulse brand orange (H≈20°). Always paired with an icon or explicit label.
-- **Failure crimson** (`Theme.failure`, `#FF6467` dark / `#CC1F2C` light): core failure, timeout, error notices, REJECT, and latency of 1000 ms or more.
-- **Tag-only hues**: indigo (`#8E90FF` / `#4E48C6`), purple (`#C484FA` / `#8738B8`), and rose pink (`#F8729D` / `#C0225A`) for IP / RULE-SET / MATCH rule types, 负载均衡 groups, and 本地 / 内联 rule sets. Every semantic and tag color clears ≥4.5:1 contrast on both `Theme.panel` and its 12% tinted tag fill in both appearances.
+- **Active emerald** (`Theme.active`, `#45D483` dark / `#197B40` light): traffic takeover status, DIRECT, and successful latency readings below 500 ms; harmonized with `StatusBadge` (`#9BE8B8` on `#183B27` dark; `#196B3A` on `#E6F5EC` light).
+- **Warning amber** (`Theme.warning` / `Theme.warningText`, `#F5B43B` dark / `#9F5C00` light): shifted to golden amber so warnings, starting/restarting states, expiry notices, and 500–999 ms latency never collide with OrangePulse brand orange. Always paired with an icon or explicit label.
+- **Failure crimson** (`Theme.failure`, `#FF6467` dark / `#C92A35` light): core failure, timeout, error notices, REJECT, and latency of 1000 ms or more.
+- **Latency dots & health strip** (`Theme.latencyDot`): in light appearance, 6×6 pt graphical dots use fresher jewel tones (`#27AE60` green, `#E8980C` amber, `#E03E47` red) so small dots stay vivid rather than muddy while accompanying numerals retain ≥4.5:1 WCAG AA text contrast.
+- **Tag-only hues**: indigo (`#8E90FF` / `#524CC2`), purple (`#C484FA` / `#7E46B8`), and rose pink (`#F8729D` / `#B83265`) for IP / RULE-SET / MATCH rule types, 负载均衡 groups, and 本地 / 内联 rule sets. Every semantic and tag color clears ≥4.5:1 contrast on both `Theme.panel` and its tinted tag fill in both appearances.
 
 ### Neutral
 

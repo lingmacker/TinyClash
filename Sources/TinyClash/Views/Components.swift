@@ -105,9 +105,14 @@ struct ToggleTile: View {
     var action: (Bool) async -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
     @State private var working = false
 
+    /// 深色外观用实心品牌橙卡片；浅色外观改用柔白杏底 + 实心品牌橙图标圆徽，避免大块饱和橙在白底上刺眼
+    private var usesSolidFill: Bool { isOn && colorScheme == .dark }
+
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
         Button {
             working = true
             Task {
@@ -117,7 +122,12 @@ struct ToggleTile: View {
         } label: {
             HStack(spacing: Theme.Space.s + 2) {
                 ZStack {
-                    Circle().fill(isOn ? Color.white.opacity(0.2) : Theme.inset)
+                    if isOn {
+                        Circle().fill(usesSolidFill ? AnyShapeStyle(Color.white.opacity(0.2))
+                                                    : AnyShapeStyle(Theme.activeBadgeGradient))
+                    } else {
+                        Circle().fill(Theme.inset)
+                    }
                     if working {
                         ProgressView().controlSize(.small).tint(isOn ? .white : nil)
                     } else {
@@ -128,26 +138,37 @@ struct ToggleTile: View {
                 .frame(width: 32, height: 32)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(.callout.weight(.semibold))
-                    Text(isOn ? "已开启" : "已关闭").font(.caption)
-                        .foregroundStyle(isOn ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
+                        .foregroundStyle(usesSolidFill ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                    Text(isOn ? "已开启" : "已关闭")
+                        .font(.caption.weight(isOn && !usesSolidFill ? .medium : .regular))
+                        .foregroundStyle(
+                            usesSolidFill ? AnyShapeStyle(.white)
+                            : isOn ? AnyShapeStyle(Theme.accentForeground)
+                            : AnyShapeStyle(.secondary)
+                        )
                 }
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(isOn ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
             .padding(.horizontal, Theme.Space.m)
             .padding(.vertical, Theme.Space.s + 2)
             .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
-                    .fill(isOn ? AnyShapeStyle(Theme.activeTileGradient) : AnyShapeStyle(Theme.inset))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
-                            .strokeBorder(isOn ? AnyShapeStyle(Theme.activeTileStroke) : AnyShapeStyle(Theme.panelBorder),
-                                          lineWidth: 0.5)
+                shape.fill(
+                    usesSolidFill ? AnyShapeStyle(Theme.activeTileGradient)
+                    : isOn ? AnyShapeStyle(Theme.controlFill)
+                    : AnyShapeStyle(Theme.inset)
+                )
+                .overlay(
+                    shape.strokeBorder(
+                        usesSolidFill ? AnyShapeStyle(Theme.activeTileStroke)
+                        : isOn ? AnyShapeStyle(Theme.accent.opacity(0.28))
+                        : AnyShapeStyle(Theme.panelBorder),
+                        lineWidth: isOn && !usesSolidFill ? 1 : 0.5
                     )
-                    .shadow(color: isOn ? Theme.activeTileShadow : .clear, radius: 6, y: 2)
+                )
+                .shadow(color: isOn ? Theme.activeTileShadow : .clear, radius: 2, y: 1)
             )
-            .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
+            .contentShape(shape)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: isOn)
         }
         .buttonStyle(PressableStyle())
