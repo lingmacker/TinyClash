@@ -10,7 +10,7 @@ struct RulesTab: View {
     @State private var requestID = UUID()
 
     private enum Route {
-        case list, add, edit(RuleEditorPage.Editing), providers
+        case list, add, addProvider, edit(RuleEditorPage.Editing), providers
         var isList: Bool { if case .list = self { return true } else { return false } }
     }
 
@@ -62,12 +62,26 @@ struct RulesTab: View {
                 EmptyView()
             case .add:
                 RuleEditorPage { route = .list }.background(Theme.canvas)
+            case .addProvider:
+                if let id = state.selectedProfileID {
+                    RuleProviderEditorPage(profileID: id) { route = .list }.background(Theme.canvas)
+                }
             case .edit(let editing):
                 RuleEditorPage(editing: editing, canEdit: canEditRules) { route = .list }.background(Theme.canvas)
             case .providers:
                 RuleProvidersPage { route = .list }
                     .id(state.selectedProfileID)
                     .background(Theme.canvas)
+            }
+        }
+        .onChange(of: state.isPanelOpen) {
+            if state.isPanelOpen && state.activeTab == .rules && route.isList {
+                Task { await loadRules() }
+            }
+        }
+        .onChange(of: state.activeTab) {
+            if state.activeTab == .rules && state.isPanelOpen && route.isList {
+                Task { await loadRules() }
             }
         }
         .onChange(of: state.selectedProfileID) {
@@ -102,22 +116,26 @@ struct RulesTab: View {
                           ? "按当前配置文件中的规则顺序显示"
                           : "按内核匹配顺序显示；点击 RuleSet 规则可在编辑页下方查看规则集包含的条目")
                 Spacer(minLength: 4)
-                Button { Task { await loadRules() } } label: {
-                    Label("刷新", systemImage: "arrow.clockwise")
-                }
-                .toolbarAction()
-                .help(!state.isRunning ? "从配置文件刷新规则" : "从内核刷新规则")
-                .disabled(state.selectedProfile == nil || loading)
                 Button { route = .providers } label: {
                     Label("规则集", systemImage: "square.stack.3d.up")
                 }
                 .toolbarAction()
                 .help("管理当前配置的 rule-providers")
-                Button { route = .add } label: {
-                    Label("添加规则", systemImage: "plus")
+                Menu {
+                    Button("添加规则…") { route = .add }
+                    Button("添加规则集…") { route = .addProvider }
+                } label: {
+                    Label("添加", systemImage: "plus")
                 }
+                // borderless 按钮样式下菜单标签会被 AppKit 按系统字号重绘；plain 样式才沿用
+                // 这里的 toolbarFont 字号，与旁边的工具栏按钮一样大
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .fixedSize()
                 .toolbarAction(prominent: true)
                 .disabled(!canEditRules)
+                .help("添加规则或规则集")
                 if state.isEditingSelectedProfile {
                     ProgressView().controlSize(.mini)
                 }
@@ -150,7 +168,7 @@ struct RulesTab: View {
                 .padding(14)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if rules.isEmpty {
-                EmptyHint(text: state.isRunning ? "当前内核没有加载规则\n点击「添加规则」创建一个" : "当前配置没有规则\n点击「添加规则」创建一个")
+                EmptyHint(text: state.isRunning ? "当前内核没有加载规则\n点击「添加」创建一个" : "当前配置没有规则\n点击「添加」创建一个")
                     .multilineTextAlignment(.center)
             } else if filtered.isEmpty {
                 EmptyHint(text: "没有匹配的规则")

@@ -389,14 +389,14 @@ private struct ToastView: View {
     }
 }
 
-/// 子页面标题栏：返回 + 标题 + 右侧操作
+/// 子页面标题栏：返回 + 居中标题 + 右侧操作
 struct SubpageHeader<Trailing: View>: View {
     var title: String
     var back: () -> Void
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
-        HStack(spacing: Theme.Space.s) {
+        CenteredBarLayout(spacing: Theme.Space.s) {
             Button(action: back) {
                 HStack(spacing: 3) {
                     Image(systemName: "chevron.left").font(.system(size: 10, weight: .semibold))
@@ -406,8 +406,13 @@ struct SubpageHeader<Trailing: View>: View {
             .buttonStyle(.borderless)
             .toolbarAction(prominent: true)
             .keyboardShortcut(.cancelAction)
-            Text(title).font(Theme.toolbarFont.weight(.semibold)).lineLimit(1).frame(maxWidth: .infinity)
-            trailing.frame(minWidth: 50, alignment: .trailing)
+
+            Text(title)
+                .font(Theme.toolbarFont.weight(.semibold))
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            HStack(spacing: 0) { trailing }
         }
         // 与各标签页顶部工具栏同一字号
         .font(Theme.toolbarFont)
@@ -419,6 +424,43 @@ struct SubpageHeader<Trailing: View>: View {
 extension SubpageHeader where Trailing == EmptyView {
     init(title: String, back: @escaping () -> Void) {
         self.init(title: title, back: back) { EmptyView() }
+    }
+}
+
+/// 三段式标题栏布局：优先让中间标题相对整栏绝对居中，超长时自动回退到左右控件之间的可用空间内截断，不重叠
+private struct CenteredBarLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 0
+        let height = subviews.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 3 else { return }
+        let leading = subviews[0].sizeThatFits(.unspecified)
+        let trailing = subviews[2].sizeThatFits(.unspecified)
+        let titleNatural = subviews[1].sizeThatFits(.unspecified)
+
+        subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading, proposal: .unspecified)
+        subviews[2].place(at: CGPoint(x: bounds.maxX, y: bounds.midY), anchor: .trailing, proposal: .unspecified)
+
+        let leftEdge = bounds.minX + leading.width + (leading.width > 0 ? spacing : 0)
+        let rightEdge = bounds.maxX - trailing.width - (trailing.width > 0 ? spacing : 0)
+        let symmetricMargin = max(leftEdge - bounds.minX, bounds.maxX - rightEdge)
+        let centeredAvailable = max(0, bounds.width - symmetricMargin * 2)
+
+        if titleNatural.width <= centeredAvailable {
+            subviews[1].place(at: CGPoint(x: bounds.midX, y: bounds.midY),
+                              anchor: .center,
+                              proposal: ProposedViewSize(width: centeredAvailable, height: titleNatural.height))
+        } else {
+            let gap = max(0, rightEdge - leftEdge)
+            subviews[1].place(at: CGPoint(x: leftEdge + gap / 2, y: bounds.midY),
+                              anchor: .center,
+                              proposal: ProposedViewSize(width: gap, height: titleNatural.height))
+        }
     }
 }
 

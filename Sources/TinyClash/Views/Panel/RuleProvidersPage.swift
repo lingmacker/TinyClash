@@ -11,7 +11,7 @@ struct RuleProvidersPage: View {
     @State private var runtimeError: String?
     @State private var requestID = UUID()
 
-    private enum Route { case list, add, edit(RuleProviderDefinition) }
+    private enum Route { case list, edit(RuleProviderDefinition) }
 
     private struct LoadKey: Equatable {
         var profileID: UUID?
@@ -34,10 +34,6 @@ struct RuleProvidersPage: View {
             switch route {
             case .list:
                 providerList.task(id: loadKey) { await load() }
-            case .add:
-                if let id = state.selectedProfileID {
-                    RuleProviderEditorPage(profileID: id, back: showList)
-                }
             case .edit(let provider):
                 if let id = state.selectedProfileID {
                     RuleProviderEditorPage(original: provider, profileID: id, back: showList)
@@ -48,19 +44,10 @@ struct RuleProvidersPage: View {
 
     private var providerList: some View {
         VStack(spacing: 0) {
-            SubpageHeader(title: "规则集", back: back) {
-                Button { route = .add } label: { Label("添加", systemImage: "plus") }
-                    .buttonStyle(.borderless)
-                    .toolbarAction(prominent: true)
-                    .disabled(!state.canEditSelectedProfile)
-            }
+            SubpageHeader(title: "规则集", back: back)
             HStack(spacing: 10) {
                 Text("\(definitions.count) 个规则集").foregroundStyle(.secondary)
                 Spacer(minLength: 4)
-                Button { Task { await load() } } label: { Label("刷新", systemImage: "arrow.clockwise") }
-                    .toolbarAction()
-                    .help("重新读取配置与规则集状态，不下载远程内容")
-                    .disabled(loading || state.busy || state.isEditingSelectedProfile)
                 Button { update() } label: {
                     if !state.updatingRuleProviders.isEmpty {
                         ProgressView().controlSize(.mini)
@@ -98,12 +85,8 @@ struct RuleProvidersPage: View {
                         if definitions.isEmpty {
                             VStack(alignment: .leading, spacing: 6) {
                                 Text("当前配置没有规则集").font(.callout.weight(.semibold))
-                                Text("添加远程、本地或内联规则集，再通过 RULE-SET 规则指定目标策略。")
+                                Text("可在「规则」页右上角的「添加」菜单中添加远程、本地或内联规则集。")
                                     .font(.caption).foregroundStyle(.secondary)
-                                Button("添加规则集") { route = .add }
-                                    .buttonStyle(.borderedProminent)
-                                    .disabled(!state.canEditSelectedProfile)
-                                    .padding(.top, 4)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.top, Theme.Space.m)
