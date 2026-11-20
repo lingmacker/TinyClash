@@ -104,7 +104,7 @@ private struct ProfileCard: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
                         Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(selected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary))
+                            .foregroundStyle(selected ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.quaternary))
                         Text(profile.name).font(.callout.weight(.semibold)).lineLimit(1).truncationMode(.middle)
                         Tag(text: profile.kind == .remote ? "订阅" : "本地")
                         if locallyModified {
@@ -165,6 +165,8 @@ private struct ProfileCard: View {
                             Image(systemName: "arrow.clockwise")
                         }
                         .buttonStyle(.borderless)
+                        .tint(.secondary)
+                        .foregroundStyle(.secondary)
                         .disabled(!state.canUpdateProfile(profile.id))
                         .help("更新订阅")
                         .accessibilityLabel("更新订阅")
@@ -176,7 +178,7 @@ private struct ProfileCard: View {
         .panel(padding: 12)
         .overlay(
             RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous)
-                .strokeBorder(selected ? Color.accentColor.opacity(0.55) : .clear, lineWidth: 1)
+                .strokeBorder(selected ? Theme.accent.opacity(0.55) : .clear, lineWidth: 1)
         )
         .hoverHighlight()
     }
@@ -208,6 +210,8 @@ private struct ProfileCard: View {
         } label: { Image(systemName: "ellipsis.circle") }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
+            .tint(.secondary)
+            .foregroundStyle(.secondary)
             .fixedSize()
             .help("更多操作")
             .accessibilityLabel("「\(profile.name)」的更多操作")
@@ -277,7 +281,7 @@ struct SubscriptionUsageBar: View {
 
     var body: some View {
         let ratio = min(Double(subscription.used) / Double(subscription.total), 1)
-        let tint = ratio > 0.9 ? Theme.failure : ratio > 0.75 ? Theme.warning : Color.accentColor
+        let tint = ratio > 0.9 ? Theme.failure : ratio > 0.75 ? Theme.warning : Theme.accent
         HStack(spacing: Theme.Space.s) {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {

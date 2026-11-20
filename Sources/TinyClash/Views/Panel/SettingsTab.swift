@@ -144,7 +144,8 @@ struct SettingsTab: View {
                             Button("打开内核日志") { NSWorkspace.shared.open(AppPaths.coreLog) }
                             Button("mihomo 配置文档") { NSWorkspace.shared.open(URL(string: "https://wiki.metacubex.one/config/")!) }
                         } label: { Image(systemName: "ellipsis.circle") }
-                            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                            .menuStyle(.borderlessButton).menuIndicator(.hidden)
+                            .tint(.secondary).foregroundStyle(.secondary).fixedSize()
                             .help("内核操作").accessibilityLabel("内核操作")
                     }
                     PanelRow(title: "远程规则集与代理集合", icon: "shippingbox") {
@@ -191,7 +192,7 @@ extension SettingsTab {
     }
 }
 
-/// 颜色模式切换：内凹轨道 + 与操作按钮同色的淡橙选中块，选中块在选项间滑动
+/// 颜色模式切换：与首页模式切换及标签栏统一的凸起选中块
 private struct AppearancePicker: View {
     @Binding var selection: AppearanceMode
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -205,11 +206,13 @@ private struct AppearancePicker: View {
                 Button { selection = mode } label: {
                     Image(systemName: mode.icon)
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(selected ? AnyShapeStyle(Theme.settingsActionForeground) : AnyShapeStyle(.secondary))
+                        .foregroundStyle(selected ? AnyShapeStyle(Theme.accentForeground) : AnyShapeStyle(.secondary))
                         .frame(width: 28, height: 20)
                         .background {
                             if selected {
-                                shape.fill(Theme.settingsControlTint.opacity(0.2))
+                                shape.fill(Theme.selectedSurface)
+                                    .overlay(shape.strokeBorder(Theme.panelBorder, lineWidth: 0.5))
+                                    .shadow(color: .black.opacity(0.08), radius: 1, y: 0.5)
                                     .matchedGeometryEffect(id: "selection", in: namespace)
                             }
                         }

@@ -257,7 +257,7 @@ struct MenuPanel: View {
                         Image(systemName: t.icon).font(.system(size: 13, weight: .medium))
                         Text(t.title).font(.caption2.weight(.medium))
                     }
-                    .foregroundStyle(tab == t ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(tab == t ? AnyShapeStyle(Theme.accentForeground) : AnyShapeStyle(.secondary))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 6)
                     .matchedGeometryEffect(id: t, in: tabNamespace)

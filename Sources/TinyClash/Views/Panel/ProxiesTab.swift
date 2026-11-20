@@ -316,6 +316,8 @@ private struct GroupDetail: View {
                     .menuStyle(.borderlessButton)
                     .controlSize(.small)
                     .menuIndicator(.hidden)
+                    .tint(.secondary)
+                    .foregroundStyle(.secondary)
                     .fixedSize()
                     .help("排序与编辑")
                     .accessibilityLabel("「\(group.name)」的更多操作")

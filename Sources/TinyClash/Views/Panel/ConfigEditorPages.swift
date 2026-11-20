@@ -179,7 +179,7 @@ struct RuleEditorPage: View {
                         }
                         if type.noResolve {
                             PanelRow(title: "no-resolve", divider: editing == nil) {
-                                Toggle("no-resolve", isOn: $noResolve).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                                Toggle("no-resolve", isOn: $noResolve).labelsHidden().toggleStyle(.settingsSwitch)
                             }
                         }
                         if editing == nil {
@@ -374,7 +374,7 @@ struct GroupEditorPage: View {
                     }
                     PanelSection(footer: "包含全部节点会引入所有节点（含订阅集合），配合正则筛选可按地区分组。") {
                         PanelRow(title: "包含全部节点") {
-                            Toggle("包含全部节点", isOn: $group.includeAll).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                            Toggle("包含全部节点", isOn: $group.includeAll).labelsHidden().toggleStyle(.settingsSwitch)
                         }
                         PanelRow(title: "筛选（正则）", divider: false) {
                             TextField("香港|HK", text: $group.filter).panelField().frame(width: PanelMetrics.fieldWidth)

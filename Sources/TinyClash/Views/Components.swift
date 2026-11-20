@@ -73,7 +73,7 @@ struct TinyClashBadge: View {
                 TinyClashLayerShape(kind: .pulse)
                     .fill(active
                           ? AnyShapeStyle(LinearGradient(
-                              colors: [Theme.accentHighlight, Theme.accent],
+                              colors: [Theme.accentHighlight, Theme.brandPulseBottom],
                               startPoint: .top, endPoint: .bottom))
                           : AnyShapeStyle(.tertiary))
             }
@@ -140,7 +140,12 @@ struct ToggleTile: View {
             .background(
                 RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
                     .fill(isOn ? AnyShapeStyle(Theme.activeTileGradient) : AnyShapeStyle(Theme.inset))
-                    .shadow(color: isOn ? Theme.activeTileShadow : .clear, radius: 5, y: 2)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous)
+                            .strokeBorder(isOn ? AnyShapeStyle(Theme.activeTileStroke) : AnyShapeStyle(Theme.panelBorder),
+                                          lineWidth: 0.5)
+                    )
+                    .shadow(color: isOn ? Theme.activeTileShadow : .clear, radius: 6, y: 2)
             )
             .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
             .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: isOn)

@@ -2,14 +2,14 @@
 name: TinyClash
 description: Stash-inspired, restrained native macOS menu-bar controls for mihomo.
 colors:
-  canvas-light: "rgb(95.5% 96% 97%)"
-  canvas-dark: "rgb(10.5% 10.8% 11.8%)"
+  canvas-light: "rgb(95.7% 96.1% 96.9%)"
+  canvas-dark: "rgb(8.6% 9.0% 10.2%)"
   panel-light: "rgb(100% 100% 100%)"
-  panel-dark: "rgb(16.5% 16.8% 18%)"
-  inset-light: "rgb(0% 0% 0% / 4%)"
-  inset-dark: "rgb(100% 100% 100% / 6%)"
-  chart-label-light: "rgb(36% 36% 36%)"
-  chart-label-dark: "rgb(75% 75% 75%)"
+  panel-dark: "rgb(12.9% 13.3% 14.9%)"
+  inset-light: "rgb(0% 0% 0% / 5%)"
+  inset-dark: "rgb(100% 100% 100% / 7.5%)"
+  chart-label-light: "rgb(35.7% 37.6% 41.6%)"
+  chart-label-dark: "rgb(62.0% 63.9% 67.8%)"
 typography:
   title:
     fontFamily: "macOS system (.default)"
@@ -101,21 +101,19 @@ The neutral palette separates canvas, panel, and inset fill; OrangePulse orange 
 
 ### Primary
 
-- **OrangePulse accent** (`Theme.accent`, `#F57B3F`): retained for the app mark, native controls (switches, checkboxes, progress), and selected node/profile indicators, but never as small text: on the light canvas it measures only ~2.6:1. Text actions (list-toolbar primaries, subpage 返回/保存/添加) use `Theme.accentForeground` through the shared `toolbarAction` style; secondary toolbar actions use primary text, and every toolbar action shows icon plus label. Small warning text (expiry, 「本地已修改」, subscription-overwrite notices) always pairs an icon with `Theme.warningText`, so warnings never rely on an orange hue that sits next to brand orange: dark orange `#9E5400` in light appearance, system orange in dark; with `Theme.accentHighlight` (`#FF9661`) supplying the light end of the app mark's pulse gradient. Large selected surfaces carry no orange wash. The selected mode segment and the terminal route segment use `Theme.selectedSurface`: a white raised surface with hairline border in light appearance (the mode thumb adds a 1 pt soft shadow), and warm neutral gray (`rgb(27% 25.8% 25%)`) in dark appearance, because low-saturation orange on a dark canvas turns brown; orange lives only in their text and icons. Enabled toggle tiles are the only solid-color surfaces — solid orange means "on", nothing else: `Theme.activeTileGradient` (`#D45218` → `#C24612`, deeper than OrangePulse so white text stays ≈4.2–5:1) in both appearances, white title, status and glyph, a 20% white icon circle, and a soft 28% accent shadow in light appearance only (on dark canvas an orange shadow reads as a glow). The active tab uses `Theme.selectedSurface` with a hairline border and `Theme.accentForeground` icon/label, matching the mode segment. The header quit action is a quiet 26 pt borderless `power` icon in secondary color that turns `Theme.failure` red on hover. Selected node cards keep opaque `Theme.controlFill`: pale orange `#FFF0E8` in light appearance and the same warm neutral gray in dark appearance. Their adaptive `Theme.accentForeground` is deep orange `#B0480E` / soft apricot `#FFD3B7`, maintaining at least 4.5:1 contrast. 
+- **OrangePulse brand ramp** (derived from `03 OrangePulse.svg`: `#FF9661` → `#F27234`, hue ~20°): unified across the entire panel so settings controls, tabs, mode selection, toolbar primaries, and profile/node selections speak one brand voice. `Theme.accent` adapts to `#F57B3F` in dark appearance and `#E05A1F` in light appearance for graphical controls (switches, borders, checkmarks, usage bars, native pickers); `Theme.accentHighlight` (`#FF9661`) and `Theme.brandPulseBottom` (`#F27234`) reproduce the AppIcon pulse dot in `TinyClashBadge`. Small text and icon+label actions (active tab, selected mode segment, list-toolbar primaries, subpage 返回/保存/添加, settings inline actions, selected node names, outbound proxy nodes) use `Theme.accentForeground`: luminous `#FF8E53` in dark appearance and deep `#B8410C` in light appearance, clearing ≥4.6:1 contrast across canvas, panel, selected surfaces, warm control fills, and 12% tags. Toolbar hover lifts to `#FFA778` in dark and deepens to `#983207` in light. The active tab, selected mode segment, appearance picker thumb, and terminal route segment all share `Theme.selectedSurface`: crisp white in light appearance and machined graphite `#2F3137` in dark appearance (avoiding muddy brown tint on dark surfaces). Enabled toggle tiles remain the only solid-color surfaces — solid orange means "on", nothing else: `Theme.activeTileGradient` (`#D45218` → `#BC4210`, white text ≥4.7:1 at midpoint / ≥5.3:1 on subtitle), a subtle 0.5 pt top specular highlight stroke, white content, 20% white icon circle, and a soft 26% accent shadow in light appearance only. Selected node cards and settings inline action buttons share opaque `Theme.controlFill`: warm ivory-apricot `#FFF2EB` in light appearance and deep warm-ember charcoal `#2D231E` in dark appearance, paired with a fine accent border and `Theme.accentForeground` text.
 
 ### Secondary
 
-- **Download blue** (`Theme.download`): download labels and the download chart series; also the domain rule-type and 自动 group tag tint.
-- **Upload teal** (`Theme.upload`): upload labels and the upload chart series; also the 故障转移 group and 远程 rule-set tag tint.
+- **Download blue** (`Theme.download`, `#4DA3FF` dark / `#0A66D0` light): download labels, download chart series, TCP tags, domain rule types, and 自动 group tags.
+- **Upload seafoam teal** (`Theme.upload`, `#32D2C4` dark / `#00767B` light): upload labels, upload chart series (deliberately separated in hue from download blue for line readability), UDP tags, 故障转移 groups, and 远程 rule-set tags.
 
 ### Tertiary
 
-- **Active green** (`Theme.active`): traffic takeover status, DIRECT, and successful latency readings below 500 ms.
-- **Warning orange** (`Theme.warning`): starting/restarting state and latency from 500 ms up to, but not including, 1000 ms.
-- **Failure red** (`Theme.failure`): core failure, timeout, error notices, REJECT, and latency of 1000 ms or more.
-- **Tag-only hues** (indigo, purple, pink): IP / RULE-SET / MATCH rule types, 负载均衡 groups, 本地 / 内联 rule sets.
-
-Semantic colors resolve to the native system colors in dark appearance. In light appearance the system colors measure only 2–3:1 as small text on white, so each uses a deepened sRGB value that clears ≥4.8:1 on white: blue `#0066D6`, teal `#007082`, green `#1E8038`, orange `#B85400`, red `#D70015`, indigo `#5048C8`, purple `#963CBE`, pink `#C81E5A`.
+- **Active emerald** (`Theme.active`, `#45D483` dark / `#157636` light): traffic takeover status, DIRECT, and successful latency readings below 500 ms; harmonized with `StatusBadge` (`#9BE8B8` on `#183B27` dark; `#145E2F` on `#DCF2E4` light).
+- **Warning amber** (`Theme.warning` / `Theme.warningText`, `#F5B43B` dark / `#995E00` light): shifted to golden amber (H≈37°–39°) so warnings, starting/restarting states, expiry notices, and 500–999 ms latency never collide with OrangePulse brand orange (H≈20°). Always paired with an icon or explicit label.
+- **Failure crimson** (`Theme.failure`, `#FF6467` dark / `#CC1F2C` light): core failure, timeout, error notices, REJECT, and latency of 1000 ms or more.
+- **Tag-only hues**: indigo (`#8E90FF` / `#4E48C6`), purple (`#C484FA` / `#8738B8`), and rose pink (`#F8729D` / `#C0225A`) for IP / RULE-SET / MATCH rule types, 负载均衡 groups, and 本地 / 内联 rule sets. Every semantic and tag color clears ≥4.5:1 contrast on both `Theme.panel` and its 12% tinted tag fill in both appearances.
 
 ### Neutral
 
@@ -166,7 +164,7 @@ Depth uses opaque tonal layering and a half-point `Theme.panelBorder` outline. `
 
 ### Shadow Vocabulary
 
-- **Panel and compact surface:** no added shadow; a 0.5 pt outline uses white at 10% opacity in dark appearance and black at 6% in light appearance.
+- **Panel and compact surface:** no added shadow; a 0.5 pt outline uses white at 9% opacity in dark appearance and black at 7% in light appearance.
 
 The sidecar preserves these native expressions. Its browser specimens use representative CSS shadows, not an assertion that SwiftUI blur radius and CSS blur are identical.
 
@@ -195,7 +193,7 @@ Home action tiles use raised panel fill, a symbol over a caption-sized label, an
 
 Home uses a native segmented picker for mode selection. Group search uses `TextField` with `.roundedBorder`, shown only when a group has more than ten members. Test actions use native borderless buttons, latency actions use plain buttons, and the empty-state import action uses `.borderedProminent`. Preserve those platform treatments; the inspected code provides no custom focus ring or custom text-field error style.
 
-Settings draws its own switches (`SettingsSwitchStyle`) and inline action buttons (`SettingsActionStyle`) instead of using native ones: the menu bar app is usually inactive, so native controls render with grey knobs, a dimmed tint, and grey buttons. Switches use an OrangePulse (`#F57B3F`) track with a white knob. Buttons use `Theme.settingsActionForeground` text (`#F57B3F` in dark appearance, `#B0480E` in light appearance) on a 15% OrangePulse fill. The appearance picker is a compact icon switch: an inset track with a 20% OrangePulse selection block that slides between options, with the selected icon in `Theme.settingsActionForeground`, matching the inline action buttons. The 协议栈 popup remains native and inherits the panel tint (`Theme.accent`), matching the pickers in 策略 and 规则. `panelPicker` rebuilds the popup when the color scheme changes, because a live native popup otherwise falls back to the system accent color.
+Settings draws its own switches (`SettingsSwitchStyle`) and inline action buttons (`SettingsActionStyle`) instead of using native ones: the menu bar app is usually inactive, so native controls render with grey knobs, a dimmed tint, and grey buttons. Switches use the unified `Theme.accent` track (`#F57B3F` dark / `#E05A1F` light) with a white knob (also reused in rule/group editor toggles). Inline action buttons use `Theme.accentForeground` medium text on opaque `Theme.controlFill` with a 0.5 pt 28% `Theme.accent` hairline border. The appearance picker shares the same elevated `Theme.selectedSurface` thumb (with hairline border and subtle shadow) and `Theme.accentForeground` icon as the tab bar and mode picker. The 协议栈 popup remains native and inherits the panel tint (`Theme.accent`), matching the pickers in 策略 and 规则. `panelPicker` rebuilds the popup when the color scheme changes, because a live native popup otherwise falls back to the system accent color.
 
 The Profiles tab uses the same top toolbar as 策略 and 规则: profile count, 「节点列表」, and a prominent 「添加」 menu (添加订阅… / 导入 YAML 文件… / 新建空白配置). Each remote profile card's menu offers “更新订阅” (alongside the card's refresh button), and every profile card's menu additionally offers “更新订阅节点” for the selected, running configuration, including local YAML: it updates only HTTP `proxy-providers`, shows an in-card progress indicator, then refreshes the node list without rewriting YAML, restarting the core, or updating rule providers. For noncurrent or stopped profiles the disabled item's own title states the reason (「需先切换到此配置」 / 「需先启动内核」) instead of an extra inert menu row; enumeration errors, absent HTTP subscriptions, and individual update failures are reported rather than silently treated as success.
 

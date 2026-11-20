@@ -216,7 +216,7 @@ struct AllNodesPage: View {
                                 .truncationMode(.middle)
                         }
                         if section.isActiveProfile {
-                            Tag(text: "当前", tint: Theme.accent)
+                            Tag(text: "当前", tint: Theme.accentForeground)
                         }
                     }
                     Spacer(minLength: 4)
@@ -271,7 +271,7 @@ struct AllNodesPage: View {
                 : upper == "FILE" ? "Provider · 本地"
                 : upper == "INLINE" ? "Provider · 内联"
                 : "Provider · \(vehicleType)"
-            let tint: Color = upper == "HTTP" ? .teal : upper == "FILE" ? .indigo : .pink
+            let tint = Theme.ruleProviderSourceTint(vehicleType.lowercased())
             Tag(text: label, tint: tint)
         case .profile:
             Tag(text: "配置文件")
