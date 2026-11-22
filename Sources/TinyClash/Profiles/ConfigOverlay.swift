@@ -296,6 +296,67 @@ enum ConfigOverlay {
         try editRule(target, in: yaml, replacement: rule)
     }
 
+    /// 将规则移到目标序号；保留原始标量和附属注释。
+    static func moveRule(_ source: RuleTarget, to destination: RuleTarget, in yaml: String) throws -> String {
+        var (lines, newline) = try editableLines(yaml)
+        guard let key = topLevelKeyIndex("rules", in: lines) else { throw OverlayError.ruleNotFound }
+
+        func indices(in parsed: [ParsedRule?]) throws -> (Int, Int) {
+            let entries = parsed.enumerated().map { ($0.offset, $0.element) }
+            guard let from = selectRuleMatch(target: source, entries: entries, indexOnly: true),
+                  let to = selectRuleMatch(target: destination, entries: entries, indexOnly: true) else {
+                throw OverlayError.ruleNotFound
+            }
+            return (from, to)
+        }
+
+        let (rest, _) = splitComment(valueAfterKey(lines[key]))
+        if rest.hasPrefix("["), rest.hasSuffix("]"), let range = lines[key].range(of: rest) {
+            var items = splitFlowSequence(String(rest.dropFirst().dropLast()))
+            let (from, to) = try indices(in: items.map { parseRuleFields(unquoteScalar($0)) })
+            guard from != to else { return yaml }
+            let item = items.remove(at: from)
+            items.insert(item, at: to)
+            lines[key].replaceSubrange(range, with: "[\(items.joined(separator: ", "))]")
+        } else {
+            guard rest.isEmpty else { throw OverlayError.flowStyle("rules") }
+            let range = (key + 1)..<sectionEnd(after: key, in: lines)
+            let entries = parseRuleEntries(in: lines, range: range)
+            // 续行不能与规则首行分开移动。
+            guard lines[range].filter({
+                let t = $0.trimmingCharacters(in: .whitespaces)
+                return !t.isEmpty && !t.hasPrefix("#")
+            }).count == entries.count else { throw OverlayError.flowStyle("rules") }
+            let (from, to) = try indices(in: entries.map(\.parsed))
+            guard from != to else { return yaml }
+            let low = min(from, to)
+            let slots = entries[low...max(from, to)].map { entry in
+                commentStart(before: entry.lineIndex, lowerBound: range.lowerBound, in: lines)..<(entry.lineIndex + 1)
+            }
+            var order = slots
+            let moved = order.remove(at: from - low)
+            order.insert(moved, at: to - low)
+            // 换位时注释跟随规则，规则之间的空行仍留在原位。
+            var replacement: [String] = []
+            var cursor = slots[0].lowerBound
+            for (slot, block) in zip(slots, order) {
+                replacement += lines[cursor..<slot.lowerBound]
+                replacement += lines[block]
+                cursor = slot.upperBound
+            }
+            lines.replaceSubrange(slots[0].lowerBound..<cursor, with: replacement)
+        }
+        return lines.joined(separator: newline)
+    }
+
+    private static func commentStart(before index: Int, lowerBound: Int, in lines: [String]) -> Int {
+        var start = index
+        while start > lowerBound, lines[start - 1].trimmingCharacters(in: .whitespaces).hasPrefix("#") {
+            start -= 1
+        }
+        return start
+    }
+
     /// 配置文件中与运行时规则对应的原始文本（未经内核规范化）
     static func ruleText(_ target: RuleTarget, in yaml: String) -> String? {
         let lines = readableLines(yaml)
@@ -438,11 +499,7 @@ enum ConfigOverlay {
             let entries = parseRuleEntries(in: lines, range: (keyIndex + 1)..<end)
             if let match = entries.first(where: { isMatchRule($0.text) }) {
                 // 紧贴在 MATCH 上方的注释属于 MATCH，新规则插在注释之前
-                insertion = match.lineIndex
-                while insertion > keyIndex + 1,
-                      lines[insertion - 1].trimmingCharacters(in: .whitespaces).hasPrefix("#") {
-                    insertion -= 1
-                }
+                insertion = commentStart(before: match.lineIndex, lowerBound: keyIndex + 1, in: lines)
             } else if let last = entries.last {
                 insertion = last.lineIndex + 1
             }
@@ -893,8 +950,8 @@ enum ConfigOverlay {
     private static func parseRuleFields(_ text: String) -> ParsedRule? {
         let fields = splitTopLevelCommas(text).map { $0.trimmingCharacters(in: .whitespaces) }
         guard fields.count >= 2 else { return nil }
-        let normType = normalizeType(fields[0])
-        if normType == "match" || normType == "final" {
+        let normType = normalizeType(apiRuleType(fields[0]))
+        if normType == "match" {
             return ParsedRule(rawType: fields[0], normalizedType: normType, payload: "", proxy: fields[1])
         }
         guard fields.count >= 3 else { return nil }
@@ -909,8 +966,8 @@ enum ConfigOverlay {
             .map { normalizeType(apiRuleType($0)) }
     }
 
-    private static func selectRuleMatch<ID>(target: RuleTarget, entries: [(ID, ParsedRule?)]) -> ID? {
-        let targetType = normalizeType(target.type)
+    private static func selectRuleMatch<ID>(target: RuleTarget, entries: [(ID, ParsedRule?)], indexOnly: Bool = false) -> ID? {
+        let targetType = normalizeType(apiRuleType(target.type))
         let compoundTypes: Set<String> = ["and", "or", "not", "subrule"]
         let isCompound = compoundTypes.contains(targetType)
         let targetTokens = isCompound ? compoundTokens(target.payload) : []
@@ -925,6 +982,8 @@ enum ConfigOverlay {
            matches(parsed, compoundByTokens: true) || matches(parsed, compoundByTokens: false) {
             return entries[index].0
         }
+
+        if indexOnly { return nil }
 
         // 先尝试 payload 大小写完全一致，再退回不区分大小写匹配
         if let exact = entries.first(where: { entry in

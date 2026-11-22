@@ -1546,6 +1546,10 @@ final class AppState {
         selectedProfile.flatMap { store.ruleText(target, in: $0) }
     }
 
+    func moveRule(_ source: ConfigOverlay.RuleTarget, to destination: ConfigOverlay.RuleTarget) async throws {
+        try await applyProfileEdit(.moveRule(source, destination))
+    }
+
     func updateRule(_ target: ConfigOverlay.RuleTarget, to rule: String) async throws {
         try await applyProfileEdit(.updateRule(target, rule))
     }

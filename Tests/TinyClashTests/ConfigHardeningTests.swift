@@ -137,6 +137,38 @@ final class ConfigHardeningTests: XCTestCase {
         XCTAssertEqual(result, "rules:\n  - DOMAIN,a.com,DIRECT\n  - DOMAIN,b.com,DIRECT\n  # fallback\n  - MATCH,Proxy\nother: 1\n")
     }
 
+    func testMoveRuleKeepsCommentsOptionsAndCRLF() throws {
+        let first = "  # private\r\n  - 'IP-CIDR,10.0.0.0/8,DIRECT,no-resolve' # LAN\r\n"
+        let second = "  # fallback\r\n  - FINAL,Proxy\r\n"
+        let yaml = "rules:\r\n" + first + "\r\n" + second + "port: 7890\r\n"
+        let cidr = ConfigOverlay.RuleTarget(index: 0, type: "IPCIDR", payload: "10.0.0.0/8", proxy: "DIRECT")
+        let match = ConfigOverlay.RuleTarget(index: 1, type: "Match", payload: "", proxy: "Proxy")
+        let moved = try ConfigOverlay.moveRule(cidr, to: match, in: yaml)
+        XCTAssertEqual(moved, "rules:\r\n" + second + "\r\n" + first + "port: 7890\r\n")
+        XCTAssertThrowsError(try ConfigOverlay.moveRule(cidr, to: match, in: moved))
+    }
+
+    func testMoveRuleInFlowListUsesSelectedOccurrence() throws {
+        let yaml = "rules: ['DOMAIN,a,DIRECT', \"DOMAIN,a,DIRECT\", 'MATCH,Proxy'] # keep"
+        let domain = ConfigOverlay.RuleTarget(index: 1, type: "Domain", payload: "a", proxy: "DIRECT")
+        let match = ConfigOverlay.RuleTarget(index: 2, type: "Match", payload: "", proxy: "Proxy")
+        XCTAssertEqual(try ConfigOverlay.moveRule(domain, to: match, in: yaml),
+                       "rules: ['DOMAIN,a,DIRECT', 'MATCH,Proxy', \"DOMAIN,a,DIRECT\"] # keep")
+    }
+
+    func testMoveRuleAcrossMultipleRowsInBothDirections() throws {
+        let a = "  # first\n  - DOMAIN,a,DIRECT"
+        let b = "  - DOMAIN,b,DIRECT"
+        let c = "  # last\n  - DOMAIN,c,DIRECT"
+        func yaml(_ rows: [String]) -> String { "rules:\n" + rows.joined(separator: "\n\n") }
+        func target(_ i: Int, _ payload: String) -> ConfigOverlay.RuleTarget {
+            .init(index: i, type: "Domain", payload: payload, proxy: "DIRECT")
+        }
+        let down = try ConfigOverlay.moveRule(target(0, "a"), to: target(2, "c"), in: yaml([a, b, c]))
+        XCTAssertEqual(down, yaml([b, c, a]))
+        XCTAssertEqual(try ConfigOverlay.moveRule(target(2, "a"), to: target(0, "b"), in: down), yaml([a, b, c]))
+    }
+
     func testAddRuleBeforeMatchAppendsWithoutFallback() throws {
         let yaml = "rules:\n  - DOMAIN,a.com,DIRECT\n\nother: 1\n"
         let result = try ConfigOverlay.addRule("DOMAIN,b.com,DIRECT", beforeMatch: true, to: yaml)

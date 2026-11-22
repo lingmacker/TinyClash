@@ -174,46 +174,64 @@ struct RulesTab: View {
                 EmptyHint(text: "没有匹配的规则")
                     .multilineTextAlignment(.center)
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: Theme.Space.s) {
-                        if state.isRunning && state.currentMode != .rule {
-                            Text("当前为\(state.currentMode.title)模式；切换到规则模式后，以下规则才参与匹配。")
-                                .font(.caption2).foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(.horizontal, 4)
-                        }
-                        // 规则按顺序匹配：放在同一个分组里紧凑排列，并显示原始匹配序号
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(filtered.enumerated()), id: \.element.id) { offset, item in
-                                let index = item.index
-                                let rule = item.rule
-                                Button { open(rule, at: index) } label: {
-                                    RuleRow(rule: rule, ordinal: index + 1, digits: String(rules.count).count,
-                                            divider: offset < filtered.count - 1)
-                                }
-                                .buttonStyle(PressableStyle())
-                                .contextMenu {
-                                    Button("编辑规则") { open(rule, at: index) }
-                                    Button("复制匹配内容") { copy(rule.payload) }.disabled(rule.payload.isEmpty)
-                                    Button("复制目标策略") { copy(rule.proxy) }
-                                    Divider()
-                                    Button("删除规则…", role: .destructive) { confirmDelete(rule, at: index) }
-                                        .disabled(!canEditRules)
-                                }
-                                .accessibilityAction(named: "编辑规则") {
-                                    open(rule, at: index)
-                                }
-                                .accessibilityAction(named: "删除规则") {
-                                    if canEditRules { confirmDelete(rule, at: index) }
-                                }
-                            }
-                        }
-                        .card(cornerRadius: Theme.Radius.section)
-                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.section, style: .continuous))
+                VStack(alignment: .leading, spacing: Theme.Space.s) {
+                    if state.isRunning && state.currentMode != .rule {
+                        Text("当前为\(state.currentMode.title)模式；切换到规则模式后，以下规则才参与匹配。")
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 4)
                     }
-                    .padding(14)
+                    List {
+                        ForEach(Array(filtered.enumerated()), id: \.element.id) { offset, item in
+                            ruleButton(item.rule, at: item.index, divider: offset < filtered.count - 1)
+                                .listRowInsets(EdgeInsets())
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                        }
+                        .onMove(perform: canEditRules && !hasQuery ? moveRule : nil)
+                    }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .card(cornerRadius: Theme.Radius.section)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.section, style: .continuous))
                 }
+                .padding(14)
             }
+        }
+    }
+
+    private func ruleButton(_ rule: RuleItem, at index: Int, divider: Bool) -> some View {
+        Button { open(rule, at: index) } label: {
+            RuleRow(rule: rule, ordinal: index + 1, digits: String(rules.count).count,
+                    divider: divider)
+        }
+        .buttonStyle(PressableStyle())
+        .contextMenu {
+            Button("编辑规则") { open(rule, at: index) }
+            Button("复制匹配内容") { copy(rule.payload) }.disabled(rule.payload.isEmpty)
+            Button("复制目标策略") { copy(rule.proxy) }
+            Divider()
+            Button("删除规则…", role: .destructive) { confirmDelete(rule, at: index) }
+                .disabled(!canEditRules)
+        }
+        .accessibilityAction(named: "编辑规则") {
+            open(rule, at: index)
+        }
+        .accessibilityAction(named: "删除规则") {
+            if canEditRules { confirmDelete(rule, at: index) }
+        }
+    }
+
+    private func moveRule(from offsets: IndexSet, to insertion: Int) {
+        guard canEditRules, search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              offsets.count == 1, let from = offsets.first else { return }
+        let to = insertion > from ? insertion - 1 : insertion
+        guard from != to, rules.indices.contains(from), rules.indices.contains(to) else { return }
+        let source = state.ruleTarget(rules[from], at: from)
+        let destination = state.ruleTarget(rules[to], at: to)
+        Task {
+            do { try await state.moveRule(source, to: destination) }
+            catch { state.errorMessage = error.localizedDescription }
         }
     }
 

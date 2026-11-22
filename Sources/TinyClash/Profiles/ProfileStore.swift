@@ -132,6 +132,7 @@ final class ProfileStore {
 
     enum ProfileEdit {
         case addRule(String, beforeMatch: Bool = false)
+        case moveRule(ConfigOverlay.RuleTarget, ConfigOverlay.RuleTarget)
         case deleteRule(ConfigOverlay.RuleTarget)
         case updateRule(ConfigOverlay.RuleTarget, String)
         case addGroup(CustomGroup)
@@ -208,6 +209,7 @@ final class ProfileStore {
         let edited: String
         switch edit {
         case .addRule(let rule, let beforeMatch): edited = try ConfigOverlay.addRule(rule, beforeMatch: beforeMatch, to: migrated)
+        case .moveRule(let source, let destination): edited = try ConfigOverlay.moveRule(source, to: destination, in: migrated)
         case .deleteRule(let target): edited = try ConfigOverlay.removeRule(target, from: migrated)
         case .updateRule(let target, let rule): edited = try ConfigOverlay.replaceRule(target, with: rule, in: migrated)
         case .addGroup(let group): edited = try ConfigOverlay.addGroup(group, to: migrated)
