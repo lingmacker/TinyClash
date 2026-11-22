@@ -62,14 +62,6 @@ struct AllNodesPage: View {
             SubpageHeader(title: "节点列表", back: back) {
                 if loading {
                     ProgressView().controlSize(.small)
-                } else {
-                    Button { Task { await load() } } label: {
-                        Label("刷新", systemImage: "arrow.clockwise")
-                    }
-                    .buttonStyle(.borderless)
-                    .toolbarAction()
-                    .help("重新读取节点列表")
-                    .disabled(state.profiles.isEmpty)
                 }
             }
             if totalNodeCount > 10 || hasQuery {

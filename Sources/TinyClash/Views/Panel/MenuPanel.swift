@@ -427,7 +427,7 @@ extension SubpageHeader where Trailing == EmptyView {
     }
 }
 
-/// 三段式标题栏布局：优先让中间标题相对整栏绝对居中，超长时自动回退到左右控件之间的可用空间内截断，不重叠
+/// 三段式标题栏布局：两侧预留相同空间，长标题截断也不偏离整栏中心
 private struct CenteredBarLayout: Layout {
     var spacing: CGFloat = 8
 
@@ -446,21 +446,11 @@ private struct CenteredBarLayout: Layout {
         subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading, proposal: .unspecified)
         subviews[2].place(at: CGPoint(x: bounds.maxX, y: bounds.midY), anchor: .trailing, proposal: .unspecified)
 
-        let leftEdge = bounds.minX + leading.width + (leading.width > 0 ? spacing : 0)
-        let rightEdge = bounds.maxX - trailing.width - (trailing.width > 0 ? spacing : 0)
-        let symmetricMargin = max(leftEdge - bounds.minX, bounds.maxX - rightEdge)
-        let centeredAvailable = max(0, bounds.width - symmetricMargin * 2)
-
-        if titleNatural.width <= centeredAvailable {
-            subviews[1].place(at: CGPoint(x: bounds.midX, y: bounds.midY),
-                              anchor: .center,
-                              proposal: ProposedViewSize(width: centeredAvailable, height: titleNatural.height))
-        } else {
-            let gap = max(0, rightEdge - leftEdge)
-            subviews[1].place(at: CGPoint(x: leftEdge + gap / 2, y: bounds.midY),
-                              anchor: .center,
-                              proposal: ProposedViewSize(width: gap, height: titleNatural.height))
-        }
+        let sideWidth = max(leading.width, trailing.width)
+        let margin = sideWidth > 0 ? sideWidth + spacing : 0
+        subviews[1].place(at: CGPoint(x: bounds.midX, y: bounds.midY),
+                          anchor: .center,
+                          proposal: ProposedViewSize(width: max(0, bounds.width - 2 * margin), height: titleNatural.height))
     }
 }
 

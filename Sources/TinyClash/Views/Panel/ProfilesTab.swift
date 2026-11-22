@@ -193,10 +193,12 @@ private struct ProfileCard: View {
             if state.selectedProfileID == profile.id {
                 Button("重新加载（编辑 YAML 后）") { Task { await state.reloadCurrentProfile() } }
             }
-            Button(nodeUpdateTitle) {
-                Task { await state.updateProfileNodes(profile.id) }
+            if profile.kind == .local {
+                Button(nodeUpdateTitle) {
+                    Task { await state.updateProfileNodes(profile.id) }
+                }
+                .disabled(!state.canUpdateProfileNodes(profile.id))
             }
-            .disabled(!state.canUpdateProfileNodes(profile.id))
             Button("编辑信息…", action: onEdit)
             Button("在 Finder 中显示") { NSWorkspace.shared.activateFileViewerSelecting([profile.fileURL]) }
             if let url = profile.url {
@@ -222,7 +224,6 @@ private struct ProfileCard: View {
 
     private var subscriptionUpdateTitle: String {
         if isUpdatingSubscription { return "正在更新订阅…" }
-        if isUpdatingNodes { return "更新订阅（正在更新节点）" }
         return "更新订阅"
     }
 
