@@ -536,6 +536,17 @@ enum ConfigOverlay {
         return String(line[line.index(after: colon)...])
     }
 
+    /// 判断 YAML 顶层是否显式配置了非空的 `find-process-mode`
+    static func hasFindProcessMode(in yaml: String) -> Bool {
+        let lines = readableLines(yaml)
+        guard let index = topLevelKeyIndex("find-process-mode", in: lines) else { return false }
+        let content = splitComment(valueAfterKey(lines[index])).content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty else { return false }
+        let unquoted = content.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        let lower = unquoted.lowercased()
+        return !unquoted.isEmpty && lower != "null" && lower != "~"
+    }
+
     private static func hasMixedNewlines(_ yaml: String) -> Bool {
         guard yaml.contains("\r\n") else { return false }
         return yaml.replacingOccurrences(of: "\r\n", with: "").contains("\n")

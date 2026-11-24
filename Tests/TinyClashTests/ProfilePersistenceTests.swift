@@ -566,14 +566,29 @@ final class ProfilePersistenceTests: XCTestCase {
         ])
     }
 
-    func testDashboardURLUsesLocalUIAndHTTPParameter() {
-        let local = AppState.dashboardURL(port: 19090, secret: "sec-123", useLocalUI: true)
-        XCTAssertEqual(local?.absoluteString,
-                       "http://127.0.0.1:19090/ui/#/setup?hostname=127.0.0.1&port=19090&secret=sec-123&http=1")
+    func testLocalProxyAddressReflectsCoreRunningStateAndPort() {
+        XCTAssertEqual(AppState.localProxyAddress(isRunning: true, httpPort: 7890), "127.0.0.1:7890")
+        XCTAssertEqual(AppState.localProxyAddress(isRunning: true, httpPort: 0), "127.0.0.1:—")
+        XCTAssertEqual(AppState.localProxyAddress(isRunning: true, httpPort: nil), "127.0.0.1:—")
+        XCTAssertEqual(AppState.localProxyAddress(isRunning: false, httpPort: 7890), "127.0.0.1:—")
+    }
 
-        let remote = AppState.dashboardURL(port: 19090, secret: "sec-123", useLocalUI: false)
-        XCTAssertEqual(remote?.absoluteString,
-                       "https://metacubex.github.io/metacubexd/#/setup?hostname=127.0.0.1&port=19090&secret=sec-123&http=1")
+    func testEffectivePatchMixedPortHonorsOverrideAndZeroPortFallback() {
+        XCTAssertEqual(AppState.effectivePatchMixedPort(runtimePort: 7890, override: 7897, fallback: 7890), 7897)
+        XCTAssertEqual(AppState.effectivePatchMixedPort(runtimePort: 0, override: nil, fallback: 7891), 7891)
+        XCTAssertNil(AppState.effectivePatchMixedPort(runtimePort: 7890, override: nil, fallback: 7891))
+        XCTAssertEqual(AppState.effectivePatchMixedPort(runtimePort: 7890, override: 99999, fallback: 7890), 65535)
+    }
+
+    func testDefaultFindProcessModeUsesAlwaysOnlyWhenAbsentOrEmptyInYAML() {
+        XCTAssertEqual(AppState.defaultFindProcessMode(forYAML: "mixed-port: 7890\nmode: rule\n"), "always")
+        XCTAssertEqual(AppState.defaultFindProcessMode(forYAML: "# find-process-mode: off\nmode: rule\n"), "always")
+        XCTAssertEqual(AppState.defaultFindProcessMode(forYAML: "find-process-mode:   # unset\n"), "always")
+        XCTAssertEqual(AppState.defaultFindProcessMode(forYAML: "find-process-mode: null\n"), "always")
+        XCTAssertEqual(AppState.defaultFindProcessMode(forYAML: "find-process-mode: ~\n"), "always")
+        XCTAssertNil(AppState.defaultFindProcessMode(forYAML: "find-process-mode: off\n"))
+        XCTAssertNil(AppState.defaultFindProcessMode(forYAML: "find-process-mode: strict # keep\n"))
+        XCTAssertNil(AppState.defaultFindProcessMode(forYAML: "\"find-process-mode\": \"always\"\n"))
     }
 
     func testSanitizedStemAndUniqueFileNameHandleSpecialCharsAndCollisions() throws {

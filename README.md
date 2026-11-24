@@ -19,7 +19,8 @@
 - 一键开关**系统代理**和 **TUN**，切换**规则 / 全局 / 直连**模式
 - 一眼看清当前出站路径：模式 → 策略组 → 节点 · 延迟
 - 实时流量图，以及连接数、内存、累计流量、端口
-- 复制终端代理命令、打开 Web 面板（metacubexd）、重启内核
+- 实时显示当前占用网速最大的三个进程（下载 / 上传）
+- 顶部栏直接展示本地代理地址（`127.0.0.1:端口`）并一键复制终端代理命令，支持重启 / 启停内核
 
 ### 策略
 
@@ -65,4 +66,4 @@
 open build/TinyClash.app
 ```
 
-依赖版本（mihomo、metacubexd、Geo 数据）在 [`dependencies.conf`](dependencies.conf) 中配置。
+依赖版本（mihomo、Geo 数据）在 [`dependencies.conf`](dependencies.conf) 中配置。

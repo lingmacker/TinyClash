@@ -15,14 +15,14 @@ struct HomeTab: View {
     }
 
     private var content: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.m) {
+        VStack(alignment: .leading, spacing: 10) {
             if state.profiles.isEmpty {
                 emptyState
             } else {
                 controls
                 // 停止后流量面板保留，读数归零、端口显示「—」，避免主页布局随内核启停跳动
                 TrafficPanel()
-                actions
+                TopProcessesPanel()
             }
         }
         .padding(14)
@@ -32,7 +32,7 @@ struct HomeTab: View {
     // MARK: - 主开关
 
     private var controls: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.m) {
+        VStack(alignment: .leading, spacing: 10) {
             // 内核未运行时系统代理已被撤销、TUN 也随内核关闭，开关显示为关闭；偏好仍保留，内核启动后自动恢复
             HStack(spacing: Theme.Space.s) {
                 ToggleTile(title: "系统代理", icon: "network", isOn: state.isRunning && state.systemProxyEnabled, enabled: state.isRunning) {
@@ -103,36 +103,6 @@ struct HomeTab: View {
                     in: RoundedRectangle(cornerRadius: Theme.Radius.tile, style: .continuous))
     }
 
-    // MARK: - 快捷操作
-
-    private var actions: some View {
-        HStack(spacing: Theme.Space.s) {
-            action("复制代理命令", icon: "terminal", enabled: state.isRunning) { state.copyTerminalCommand() }
-                .help(state.terminalProxyCommand)
-            action("Web 面板", icon: "safari", enabled: state.isRunning) {
-                if let url = state.dashboardURL { NSWorkspace.shared.open(url) }
-            }
-            .help("在 metacubexd 中查看连接、规则与日志")
-        }
-    }
-
-    private func action(_ title: String, icon: String, enabled: Bool, perform: @escaping () -> Void) -> some View {
-        Button(action: perform) {
-            VStack(spacing: 4) {
-                Image(systemName: icon).font(.system(size: 14))
-                Text(title).font(.caption2)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 9)
-            .card()
-            .contentShape(Rectangle())
-            .hoverHighlight(cornerRadius: Theme.Radius.tile)
-        }
-        .buttonStyle(PressableStyle())
-        .disabled(!enabled)
-        .opacity(enabled ? 1 : 0.45)
-    }
-
     private var emptyState: some View {
         VStack(spacing: Theme.Space.m) {
             TinyClashMark()
@@ -157,14 +127,14 @@ private struct TrafficPanel: View {
     @Environment(AppState.self) private var state
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s + 2) {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
             HStack(alignment: .firstTextBaseline) {
-                SpeedReadout(label: "下载", icon: "arrow.down", value: state.downSpeed, tint: Theme.download)
+                SpeedReadout(label: "下载", icon: "arrow.down", value: state.downSpeed, tint: Theme.download, size: 18)
                 Spacer()
-                SpeedReadout(label: "上传", icon: "arrow.up", value: state.upSpeed, tint: Theme.upload)
+                SpeedReadout(label: "上传", icon: "arrow.up", value: state.upSpeed, tint: Theme.upload, size: 18)
                     .frame(width: 130, alignment: .leading)
             }
-            TrafficChart(points: state.trafficHistory).frame(minHeight: 72, idealHeight: 72, maxHeight: .infinity)
+            TrafficChart(points: state.trafficHistory).frame(minHeight: 44, idealHeight: 48, maxHeight: .infinity)
             HStack(spacing: 0) {
                 fact("连接", "\(state.connections.count)")
                 fact("内存", Format.bytes(state.memory))
@@ -172,7 +142,14 @@ private struct TrafficPanel: View {
                 fact("端口", state.runtime.map { $0.httpPort > 0 ? "\($0.httpPort)" : "—" } ?? "—")
             }
         }
-        .panel(padding: 12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous)
+                .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
+        )
     }
 
     private func fact(_ label: String, _ value: String) -> some View {
@@ -181,6 +158,163 @@ private struct TrafficPanel: View {
             Text(value).font(Theme.numeral(12, weight: .medium)).lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// 当前占用网速最大的三个进程：固定三行高度，避免流量在 0~3 个进程间波动时导致上方图表跳动
+private struct TopProcessesPanel: View {
+    @Environment(AppState.self) private var state
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private let speedColumnWidth: CGFloat = 66
+    private let rowHeight: CGFloat = 20
+    private let rowSpacing: CGFloat = 2
+
+    private var listHeight: CGFloat {
+        rowHeight * 3 + rowSpacing * 2
+    }
+
+    var body: some View {
+        let items = Array(state.topProcesses.prefix(3))
+        let maxSpeed = max(items.first?.totalSpeed ?? 1, 1)
+
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text("进程网速")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 4)
+                HStack(spacing: 2) {
+                    Image(systemName: "arrow.down").font(.system(size: 8.5, weight: .semibold))
+                    Text("下载").font(.system(size: 10, weight: .medium))
+                }
+                .foregroundStyle(Theme.download)
+                .frame(width: speedColumnWidth, alignment: .trailing)
+                HStack(spacing: 2) {
+                    Image(systemName: "arrow.up").font(.system(size: 8.5, weight: .semibold))
+                    Text("上传").font(.system(size: 10, weight: .medium))
+                }
+                .foregroundStyle(Theme.upload)
+                .frame(width: speedColumnWidth, alignment: .trailing)
+            }
+            .padding(.horizontal, 2)
+
+            Divider().opacity(0.6)
+
+            if !state.isRunning {
+                emptyPlaceholder("内核未运行", icon: "pause.circle")
+            } else if items.isEmpty {
+                emptyPlaceholder("暂无活跃流量", icon: "arrow.up.arrow.down")
+            } else {
+                VStack(alignment: .leading, spacing: rowSpacing) {
+                    ForEach(items) { item in
+                        row(item: item, share: CGFloat(item.totalSpeed) / CGFloat(maxSpeed))
+                    }
+                }
+                .frame(height: listHeight, alignment: .top)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous)
+                .strokeBorder(Theme.panelBorder, lineWidth: 0.5)
+        )
+        .opacity(state.isRunning ? 1 : 0.72)
+    }
+
+    private func emptyPlaceholder(_ text: String, icon: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon).font(.system(size: 10.5, weight: .medium))
+            Text(text).font(.caption)
+        }
+        .foregroundStyle(.tertiary)
+        .frame(maxWidth: .infinity, minHeight: listHeight, maxHeight: listHeight)
+    }
+
+    private func row(item: ProcessTrafficItem, share: CGFloat) -> some View {
+        let clampedShare = max(0.06, min(1, share))
+        let barTint = item.downloadSpeed >= item.uploadSpeed ? Theme.download : Theme.upload
+        let barOpacity = colorScheme == .dark ? 0.14 : 0.085
+        let shape = RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
+
+        return HStack(spacing: 6) {
+            ProcessRowIcon(name: item.name, path: item.processPath)
+            Text(item.name)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            speedText(item.downloadSpeed)
+            speedText(item.uploadSpeed)
+        }
+        .padding(.horizontal, 6)
+        .frame(height: rowHeight)
+        .background {
+            GeometryReader { geo in
+                shape
+                    .fill(barTint.opacity(barOpacity))
+                    .frame(width: geo.size.width * clampedShare)
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: clampedShare)
+            }
+        }
+        .clipShape(shape)
+        .contentShape(shape)
+        .hoverHighlight(cornerRadius: Theme.Radius.chip)
+        .padding(.horizontal, -4)
+        .help(tooltip(for: item))
+        .contextMenu {
+            Button("复制进程名") { state.copy(item.name, message: "已复制进程名") }
+            if let path = item.processPath {
+                Button("复制进程路径") { state.copy(path, message: "已复制进程路径") }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(item.name)，下载 \(Format.speed(item.downloadSpeed))，上传 \(Format.speed(item.uploadSpeed))")
+    }
+
+    private func speedText(_ value: Int64) -> some View {
+        Text(value > 0 ? Format.speed(value) : "—")
+            .font(Theme.numeral(10.5, weight: value > 0 ? .medium : .regular))
+            .foregroundStyle(value > 0 ? AnyShapeStyle(.primary) : AnyShapeStyle(.quaternary))
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
+            .contentTransition(.numericText())
+            .frame(width: speedColumnWidth, alignment: .trailing)
+    }
+
+    private func tooltip(for item: ProcessTrafficItem) -> String {
+        var lines = [item.name]
+        if let path = item.processPath { lines.append(path) }
+        lines.append("下载 \(Format.speed(item.downloadSpeed)) · 上传 \(Format.speed(item.uploadSpeed)) · \(item.connectionCount) 个连接")
+        return lines.joined(separator: "\n")
+    }
+}
+
+private struct ProcessRowIcon: View {
+    let name: String
+    let path: String?
+
+    var body: some View {
+        if let image = ProcessIconCache.shared.icon(forName: name, path: path) {
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 14, height: 14)
+        } else {
+            ZStack {
+                RoundedRectangle(cornerRadius: 3.5, style: .continuous)
+                    .fill(Theme.inset)
+                Image(systemName: ProcessIconCache.fallbackSymbol(forName: name, path: path))
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: 14, height: 14)
+        }
     }
 }
 

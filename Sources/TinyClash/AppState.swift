@@ -95,6 +95,7 @@ final class AppState {
     var downloadTotal: Int64 = 0
     var memory: Int64 = 0
     var connections: [Connection] = []
+    var topProcesses: [ProcessTrafficItem] = []
     var requestLog = RequestLog()
     var hasConnectionSnapshot = false
     var connectionStreamError: String?
@@ -145,6 +146,8 @@ final class AppState {
             defaults.set(selectedProfileID?.uuidString, forKey: "selectedProfileID")
             if oldValue != selectedProfileID {
                 requestLog.reset()
+                processTrafficTracker.reset()
+                topProcesses = []
                 connections = []
                 hasConnectionSnapshot = false
                 connectionStreamError = nil
@@ -158,6 +161,18 @@ final class AppState {
     /// 用户在 App 中切换过的模式，nil 表示沿用配置文件
     var modeOverride: String? { didSet { defaults.set(modeOverride, forKey: "modeOverride") } }
     var allowLanOverride: Bool? { didSet { defaults.set(allowLanOverride, forKey: "allowLanOverride") } }
+    /// 用户在设置中指定的混合端口覆盖，nil 表示沿用配置文件（未配置时回退 fallbackPort）
+    var mixedPortOverride: Int? {
+        didSet {
+            if let port = mixedPortOverride {
+                let clamped = Self.clampedPort(port)
+                if mixedPortOverride != clamped { mixedPortOverride = clamped }
+                defaults.set(clamped, forKey: "mixedPortOverride")
+            } else {
+                defaults.removeObject(forKey: "mixedPortOverride")
+            }
+        }
+    }
     /// 空字符串表示沿用配置文件中的 tun.stack
     var tunStack: String { didSet { defaults.set(tunStack, forKey: "tunStack") } }
     var tunSetDNS: Bool { didSet { defaults.set(tunSetDNS, forKey: "tunSetDNS") } }
@@ -243,6 +258,7 @@ final class AppState {
     private let store = ProfileStore()
     private var streams: [StreamClient] = []
     private var connectionStreamID = UUID()
+    private var processTrafficTracker = ProcessTrafficTracker()
     private var trafficCounter = 0
     private var rawTrafficHistory: [TrafficPoint] = []
     private var latestUpSpeed: Int64 = 0
@@ -280,6 +296,7 @@ final class AppState {
         tunEnabled = d.bool(forKey: "tun")
         modeOverride = d.string(forKey: "modeOverride")
         allowLanOverride = d.object(forKey: "allowLanOverride") as? Bool
+        mixedPortOverride = (d.object(forKey: "mixedPortOverride") as? Int).map(Self.clampedPort)
         tunStack = d.string(forKey: "tunStack") ?? ""
         tunSetDNS = d.object(forKey: "tunSetDNS") as? Bool ?? true
         tunDNSServer = d.string(forKey: "tunDNSServer") ?? "223.5.5.5"
@@ -313,7 +330,6 @@ final class AppState {
             var installError: String?
             do { try core.installBundledCoreIfNeeded() } catch { installError = error.localizedDescription }
             core.installBundledGeoIfNeeded()
-            core.installBundledWebUIIfNeeded()
             return (installError, CoreManager.version(of: AppPaths.coreBinary) ?? "")
         }.value
         if let installError { errorMessage = "安装内核失败：\(installError)" }
@@ -591,7 +607,15 @@ final class AppState {
         guard let api else { return }
         runtime = try? await api.configs()
         var patch: [String: Any] = [:]
-        if let rt = runtime, rt.httpPort == 0 { patch["mixed-port"] = fallbackPort }
+        if let port = Self.effectivePatchMixedPort(runtimePort: runtime?.httpPort ?? 0,
+                                                   override: mixedPortOverride,
+                                                   fallback: fallbackPort) {
+            patch["mixed-port"] = port
+        }
+        let profileYAML = selectedProfile.flatMap { try? String(contentsOf: $0.fileURL, encoding: .utf8) }
+        if let findProcessMode = Self.defaultFindProcessMode(forYAML: profileYAML) {
+            patch["find-process-mode"] = findProcessMode
+        }
         if let m = modeOverride { patch["mode"] = m }
         if let lan = allowLanOverride { patch["allow-lan"] = lan }
         if !patch.isEmpty {
@@ -749,6 +773,54 @@ final class AppState {
         guard let api else { return }
         try? await api.patchConfigs(["allow-lan": on])
         runtime = try? await api.configs()
+    }
+
+    var activeMixedPort: Int {
+        if let port = runtime?.httpPort, port > 0 { return port }
+        return mixedPortOverride ?? fallbackPort
+    }
+
+    static func effectivePatchMixedPort(runtimePort: Int, override: Int?, fallback: Int) -> Int? {
+        if let override { return clampedPort(override) }
+        return runtimePort == 0 ? clampedPort(fallback) : nil
+    }
+
+    /// 配置文件未显式设置 `find-process-mode` 时，默认在运行时应用 `always`
+    static func defaultFindProcessMode(forYAML yaml: String?) -> String? {
+        guard let yaml else { return "always" }
+        return ConfigOverlay.hasFindProcessMode(in: yaml) ? nil : "always"
+    }
+
+    /// 实时修改混合监听端口：持久化覆盖、热更新运行中的内核，并在开启系统代理时同步更新系统代理端口
+    func setMixedPort(_ rawPort: Int) async {
+        let port = Self.clampedPort(rawPort)
+        let previousOverride = mixedPortOverride
+        let previousFallback = fallbackPort
+        mixedPortOverride = port
+        fallbackPort = port
+        guard isRunning, let api else { return }
+        let previousPort = runtime?.httpPort ?? 0
+        guard port != previousPort else { return }
+        do {
+            try await api.patchConfigs(["mixed-port": port])
+            runtime = try? await api.configs()
+            let actualPort = runtime?.httpPort ?? 0
+            guard actualPort == port else {
+                mixedPortOverride = previousOverride
+                fallbackPort = previousFallback
+                errorMessage = "修改混合端口为 \(port) 未生效，请检查端口是否被其他程序占用"
+                return
+            }
+            if systemProxyEnabled {
+                await applySystemProxy()
+            }
+            showToast("混合端口已切换为 \(port)")
+        } catch {
+            mixedPortOverride = previousOverride
+            fallbackPort = previousFallback
+            errorMessage = "修改混合端口失败：\(error.localizedDescription)"
+            runtime = try? await api.configs()
+        }
     }
 
     // MARK: - Proxies
@@ -1038,6 +1110,11 @@ final class AppState {
                 if s.downloadTotal != snap.downloadTotal { s.downloadTotal = snap.downloadTotal }
                 s.connections = sortedConnections
                 s.requestLog.ingest(sortedConnections)
+                s.processTrafficTracker.ingest(sortedConnections)
+                if s.isPanelOpen && s.activeTab == .home {
+                    let latest = s.processTrafficTracker.topProcesses
+                    if s.topProcesses != latest { s.topProcesses = latest }
+                }
             }
         }
         streams = [traffic, memory, conns]
@@ -1073,6 +1150,8 @@ final class AppState {
         hasConnectionSnapshot = false
         connectionStreamError = nil
         requestLog.finish()
+        processTrafficTracker.reset()
+        if !topProcesses.isEmpty { topProcesses = [] }
         streams.forEach { $0.stop() }
         streams = []
         proxyRefreshTask?.cancel()
@@ -1084,6 +1163,8 @@ final class AppState {
         if downSpeed != latestDownSpeed { downSpeed = latestDownSpeed }
         if memory != latestMemory { memory = latestMemory }
         trafficHistory = rawTrafficHistory
+        let latestTop = processTrafficTracker.topProcesses
+        if topProcesses != latestTop { topProcesses = latestTop }
     }
 
     private func pushTraffic(_ s: TrafficSample) {
@@ -1166,6 +1247,7 @@ final class AppState {
         allow-lan: false
         mode: rule
         log-level: info
+        find-process-mode: always
         ipv6: true
 
         dns:
@@ -1799,6 +1881,15 @@ final class AppState {
         if wasRunning { await startCore() }
     }
 
+    var localProxyAddress: String {
+        Self.localProxyAddress(isRunning: isRunning, httpPort: runtime?.httpPort)
+    }
+
+    static func localProxyAddress(isRunning: Bool, httpPort: Int?) -> String {
+        guard isRunning, let port = httpPort, port > 0 else { return "127.0.0.1:—" }
+        return "127.0.0.1:\(port)"
+    }
+
     var terminalProxyCommand: String {
         let port = runtime?.httpPort ?? fallbackPort
         let socks = runtime?.socksProxyPort ?? port
@@ -1835,34 +1926,5 @@ final class AppState {
         } catch {
             errorMessage = "清空 DNS 缓存失败：\(error.localizedDescription)"
         }
-    }
-
-    /// 官方 Web 面板 metacubexd，优先由本地内核同源提供，避免浏览器混合内容拦截
-    var dashboardURL: URL? {
-        guard let api else { return nil }
-        return Self.dashboardURL(port: api.port, secret: api.secret, useLocalUI: core.hasWebUI)
-    }
-
-    static func dashboardURL(port: Int, secret: String, useLocalUI: Bool) -> URL? {
-        var components = URLComponents()
-        if useLocalUI {
-            components.scheme = "http"
-            components.host = "127.0.0.1"
-            components.port = port
-            components.path = "/ui/"
-        } else {
-            components.scheme = "https"
-            components.host = "metacubex.github.io"
-            components.path = "/metacubexd/"
-        }
-        var query = URLComponents()
-        query.queryItems = [
-            URLQueryItem(name: "hostname", value: "127.0.0.1"),
-            URLQueryItem(name: "port", value: "\(port)"),
-            URLQueryItem(name: "secret", value: secret),
-            URLQueryItem(name: "http", value: "1"),
-        ]
-        components.fragment = "/setup?\(query.percentEncodedQuery ?? "")"
-        return components.url
     }
 }

@@ -205,16 +205,26 @@ struct MenuPanel: View {
         let running = state.isRunning
         let toggling = !state.restarting && (state.coreState == .starting || stoppingCore)
         let coreBusy = toggling || state.restarting || state.quitting
-        return HStack(spacing: 10) {
+        let canCopyProxy = running && (state.runtime?.httpPort ?? 0) > 0
+        return HStack(alignment: .center, spacing: 10) {
             TinyClashBadge(active: state.isProxying)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text("TinyClash").font(.headline)
+                    Text("TinyClash")
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
                     StatusBadge()
                 }
-                Text(state.selectedProfile?.name ?? "未选择配置")
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                .frame(height: 16)
+                HeaderProxyCopyButton(address: state.localProxyAddress) {
+                    state.copyTerminalCommand()
+                }
+                .frame(height: 14)
+                .disabled(!canCopyProxy)
+                .help(canCopyProxy ? "复制终端代理命令：\n\(state.terminalProxyCommand)" : "内核未运行")
+                .accessibilityLabel("复制代理命令，\(state.localProxyAddress)")
             }
+            .frame(height: 32)
             Spacer(minLength: Theme.Space.s)
             HeaderAction(icon: "arrow.clockwise", tint: Theme.accentForeground, busy: state.restarting) {
                 Task { await state.restartCore() }
@@ -327,6 +337,56 @@ private struct HeaderAction: View {
         .animation(.easeOut(duration: 0.15), value: busy)
         .animation(.easeOut(duration: 0.15), value: enabled)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: icon)
+    }
+}
+
+private struct HeaderProxyCopyButton: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var enabled
+    @State private var hovering = false
+    @State private var copied = false
+    @State private var copiedResetTask: Task<Void, Never>?
+    let address: String
+    let action: () -> Void
+
+    var body: some View {
+        let highlighted = enabled && hovering
+        HStack(spacing: 3) {
+            Text(address)
+                .font(Theme.numeral(10.5, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Button {
+                action()
+                copied = true
+                copiedResetTask?.cancel()
+                copiedResetTask = Task {
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    guard !Task.isCancelled else { return }
+                    copied = false
+                }
+            } label: {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(copied ? AnyShapeStyle(Theme.active)
+                                            : highlighted ? AnyShapeStyle(Theme.accentForeground)
+                                                          : AnyShapeStyle(.tertiary))
+                    .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
+                    .frame(width: 16, height: 14)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PressableStyle())
+            .onHover { hovering = $0 }
+        }
+        .opacity(enabled ? 1 : 0.55)
+        .onDisappear {
+            hovering = false
+            copiedResetTask?.cancel()
+            copied = false
+        }
+        .onChange(of: enabled) { if !enabled { hovering = false } }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: copied)
     }
 }
 

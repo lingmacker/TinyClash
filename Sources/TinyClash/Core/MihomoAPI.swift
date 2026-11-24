@@ -10,6 +10,7 @@ struct RuntimeConfig: Decodable {
     var mode: String = "rule"
     var logLevel: String = "info"
     var ipv6: Bool = false
+    var findProcessMode: String?
     var tun: TunConfig?
 
     struct TunConfig: Decodable {
@@ -30,6 +31,7 @@ struct RuntimeConfig: Decodable {
         case mixedPort = "mixed-port"
         case allowLan = "allow-lan"
         case logLevel = "log-level"
+        case findProcessMode = "find-process-mode"
     }
 
     /// 系统代理使用的 HTTP 端口与 SOCKS 端口
@@ -144,6 +146,7 @@ struct Connection: Decodable, Identifiable {
         var host: String
         var process: String?
         var sniffHost: String?
+        var processPath: String? = nil
 
         var displayHost: String {
             let h = host.isEmpty ? (sniffHost?.isEmpty == false ? sniffHost! : destinationIP) : host

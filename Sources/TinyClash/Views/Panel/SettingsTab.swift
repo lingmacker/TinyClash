@@ -8,6 +8,8 @@ struct SettingsTab: View {
     @State private var runningAction: String?
     @FocusState private var dnsFieldFocused: Bool
     @State private var appliedTunDNSServer = ""
+    @FocusState private var portFieldFocused: Bool
+    @State private var portText = ""
 
     var body: some View {
         if editingBypass {
@@ -21,6 +23,25 @@ struct SettingsTab: View {
         guard state.tunDNSServer != appliedTunDNSServer else { return }
         appliedTunDNSServer = state.tunDNSServer
         Task { await state.tunSettingsChanged() }
+    }
+
+    private func syncPortText() {
+        portText = "\(state.activeMixedPort)"
+    }
+
+    private func applyPortIfNeeded() {
+        let trimmed = portText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let parsed = Int(trimmed) else {
+            syncPortText()
+            return
+        }
+        let clamped = AppState.clampedPort(parsed)
+        portText = "\(clamped)"
+        guard clamped != state.activeMixedPort || state.mixedPortOverride != clamped else { return }
+        Task {
+            await state.setMixedPort(clamped)
+            syncPortText()
+        }
     }
 
     private var root: some View {
@@ -114,11 +135,14 @@ struct SettingsTab: View {
                 .onChange(of: state.tunStack) { Task { await state.tunSettingsChanged() } }
                 .onChange(of: state.tunSetDNS) { Task { await state.tunSettingsChanged() } }
 
-                PanelSection(title: "系统代理与测速") {
+                PanelSection(title: "系统代理与测速", footer: "修改混合端口后按回车或失焦立即生效，并自动同步系统代理。") {
                     NavRow(title: "绕过代理的地址", icon: "arrow.uturn.right", value: "\(state.bypassList.count) 项") { editingBypass = true }
-                    PanelRow(title: "备用混合端口", icon: "number") {
-                        TextField("7890", value: $state.fallbackPort, format: .number.grouping(.never))
-                            .panelField().frame(width: 70)
+                    PanelRow(title: "混合端口", icon: "number") {
+                        TextField("7890", text: $portText)
+                            .panelField()
+                            .frame(width: 70)
+                            .focused($portFieldFocused)
+                            .onSubmit { applyPortIfNeeded() }
                     }
                     PanelRow(title: "测速地址", icon: "bolt") {
                         TextField("URL", text: $state.delayTestURL).panelField()
@@ -128,6 +152,10 @@ struct SettingsTab: View {
                             .panelField().frame(width: 70)
                     }
                 }
+                .onAppear { syncPortText() }
+                .onDisappear { applyPortIfNeeded() }
+                .onChange(of: portFieldFocused) { if !portFieldFocused { applyPortIfNeeded() } }
+                .onChange(of: state.runtime?.httpPort) { if !portFieldFocused { syncPortText() } }
 
                 PanelSection(title: "内核与数据") {
                     PanelRow(title: "mihomo", icon: "cpu") {

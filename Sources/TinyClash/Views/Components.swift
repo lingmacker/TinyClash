@@ -77,9 +77,9 @@ struct TinyClashBadge: View {
                               startPoint: .top, endPoint: .bottom))
                           : AnyShapeStyle(.tertiary))
             }
-            .frame(width: 19, height: 19)
+            .frame(width: 20, height: 20)
         }
-        .frame(width: 30, height: 30)
+        .frame(width: 32, height: 32)
     }
 }
 
@@ -307,13 +307,13 @@ struct StatusBadge: View {
     @Environment(AppState.self) private var state
 
     var body: some View {
-        HStack(spacing: 6) {
-            Circle().fill(color).frame(width: 7, height: 7)
-            Text(text).font(.caption.weight(.medium))
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 6, height: 6)
+            Text(text).font(.system(size: 10, weight: .medium))
         }
         .foregroundStyle(color)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
+        .padding(.horizontal, 6)
+        .frame(height: 16)
         .background(state.isProxying && !state.restarting && !state.quitting
                     ? Theme.statusActiveFill : color.opacity(0.12),
                     in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))

@@ -155,7 +155,7 @@ Semantic text styles retain platform-controlled sizes and line metrics. The sour
 - Header, navigation, and scrolling content use a 14 pt horizontal inset. Home and proxy-list content have 14 pt outer padding. Header padding is 12 pt above and 10 pt below; the tab bar has 10 pt below it.
 - The named spacing scale comes from `Theme.Space`. Most Home vertical grouping uses `m`; paired toggles and action tiles use `s`; proxy cards are stacked at `s`; node rows are stacked at `xs`.
 - `PanelBackground` defaults to `l` internal padding. Traffic and proxy group cards explicitly use `m`. `PanelSection` groups zero-spacing settings rows; each `PanelRow` has 12 pt horizontal padding and a minimum height of 36 pt.
-- Home's toggle pair and three action tiles share available width equally. Traffic facts use four equal-width columns. The upload speed block has an explicit 130 pt width.
+- Home's toggle pair shares available width equally. Traffic facts use four equal-width columns. The upload speed block has an explicit 130 pt width. Below the traffic card sits a fixed-height top-3 active processes card (`进程网速`) with aligned download/upload speed columns so chart height stays stable. The shared header places a compact `127.0.0.1:port` copy button directly under the `TinyClash` title for one-click terminal proxy command copy.
 - Long profile/group labels use a single line. Node and selected-route names use truncation; route segments truncate in the middle, and the terminal segment receives layout priority.
 - Header speeds appear only off Home while the core is running. Home has its own larger speed readouts. Do not duplicate the header-speed treatment onto Home based solely on the earlier surface brief.
 
