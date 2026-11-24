@@ -40,7 +40,7 @@ struct ProcessTrafficTracker {
         return "未知进程"
     }
 
-    mutating func ingest(_ connections: [Connection], at now: Date = Date(), limit: Int = 3) {
+    mutating func ingest(_ connections: [Connection], at now: Date = Date(), limit: Int = 4) {
         let maxCount = max(0, limit)
         var currentSamples: [String: ConnectionSample] = [:]
         currentSamples.reserveCapacity(connections.count)

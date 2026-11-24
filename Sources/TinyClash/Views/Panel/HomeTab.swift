@@ -127,14 +127,14 @@ private struct TrafficPanel: View {
     @Environment(AppState.self) private var state
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                SpeedReadout(label: "下载", icon: "arrow.down", value: state.downSpeed, tint: Theme.download, size: 18)
+                SpeedReadout(label: "下载", icon: "arrow.down", value: state.downSpeed, tint: Theme.download, size: 17)
                 Spacer()
-                SpeedReadout(label: "上传", icon: "arrow.up", value: state.upSpeed, tint: Theme.upload, size: 18)
+                SpeedReadout(label: "上传", icon: "arrow.up", value: state.upSpeed, tint: Theme.upload, size: 17)
                     .frame(width: 130, alignment: .leading)
             }
-            TrafficChart(points: state.trafficHistory).frame(minHeight: 44, idealHeight: 48, maxHeight: .infinity)
+            TrafficChart(points: state.trafficHistory).frame(minHeight: 36, idealHeight: 40, maxHeight: .infinity)
             HStack(spacing: 0) {
                 fact("连接", "\(state.connections.count)")
                 fact("内存", Format.bytes(state.memory))
@@ -143,7 +143,7 @@ private struct TrafficPanel: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous))
         .overlay(
@@ -161,22 +161,23 @@ private struct TrafficPanel: View {
     }
 }
 
-/// 当前占用网速最大的三个进程：固定三行高度，避免流量在 0~3 个进程间波动时导致上方图表跳动
+/// 当前占用网速最大的四个进程：固定四行高度，避免流量在 0~4 个进程间波动时导致上方图表跳动
 private struct TopProcessesPanel: View {
     @Environment(AppState.self) private var state
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private let maxVisibleCount = 4
     private let speedColumnWidth: CGFloat = 66
     private let rowHeight: CGFloat = 20
     private let rowSpacing: CGFloat = 2
 
     private var listHeight: CGFloat {
-        rowHeight * 3 + rowSpacing * 2
+        rowHeight * CGFloat(maxVisibleCount) + rowSpacing * CGFloat(maxVisibleCount - 1)
     }
 
     var body: some View {
-        let items = Array(state.topProcesses.prefix(3))
+        let items = Array(state.topProcesses.prefix(maxVisibleCount))
         let maxSpeed = max(items.first?.totalSpeed ?? 1, 1)
 
         VStack(alignment: .leading, spacing: 4) {

@@ -43,7 +43,7 @@ final class ProcessTrafficTests: XCTestCase {
         XCTAssertTrue(tracker.topProcesses.isEmpty)
     }
 
-    func testAggregatesMultipleConnectionsAndReturnsTopThreeByTotalSpeed() {
+    func testAggregatesMultipleConnectionsAndReturnsTopFourByTotalSpeed() {
         var tracker = ProcessTrafficTracker()
         tracker.ingest([
             makeConnection(id: "c1", process: "Chrome", processPath: "/Applications/Chrome.app/Contents/MacOS/Chrome", upload: 100, download: 1000),
@@ -51,7 +51,8 @@ final class ProcessTrafficTests: XCTestCase {
             makeConnection(id: "c3", process: "curl", upload: 0, download: 500),
             makeConnection(id: "c4", process: "WeChat", upload: 100, download: 100),
             makeConnection(id: "c5", process: "Safari", upload: 10, download: 10),
-            makeConnection(id: "c6", process: "IdleApp", upload: 999, download: 999),
+            makeConnection(id: "c6", process: "Mail", upload: 5, download: 5),
+            makeConnection(id: "c7", process: "IdleApp", upload: 999, download: 999),
         ], at: baseTime)
 
         tracker.ingest([
@@ -59,14 +60,16 @@ final class ProcessTrafficTests: XCTestCase {
             makeConnection(id: "c2", process: "Chrome", upload: 500, download: 3000), // +300 up, +1000 down -> Chrome total: +500 up, +3000 down = 3500
             makeConnection(id: "c3", process: "curl", upload: 4000, download: 1500),  // +4000 up, +1000 down = 5000
             makeConnection(id: "c4", process: "WeChat", upload: 100, download: 1100), // +0 up, +1000 down = 1000
-            makeConnection(id: "c5", process: "Safari", upload: 110, download: 210),  // +100 up, +200 down = 300 (4th -> excluded)
-            makeConnection(id: "c6", process: "IdleApp", upload: 999, download: 999), // 0 delta -> excluded
+            makeConnection(id: "c5", process: "Safari", upload: 110, download: 210),  // +100 up, +200 down = 300 (4th -> included)
+            makeConnection(id: "c6", process: "Mail", upload: 55, download: 55),      // +50 up, +50 down = 100 (5th -> excluded)
+            makeConnection(id: "c7", process: "IdleApp", upload: 999, download: 999), // 0 delta -> excluded
         ], at: baseTime.addingTimeInterval(1.0))
 
         XCTAssertEqual(tracker.topProcesses, [
             ProcessTrafficItem(name: "curl", processPath: nil, downloadSpeed: 1000, uploadSpeed: 4000, connectionCount: 1),
             ProcessTrafficItem(name: "Chrome", processPath: "/Applications/Chrome.app/Contents/MacOS/Chrome", downloadSpeed: 3000, uploadSpeed: 500, connectionCount: 2),
             ProcessTrafficItem(name: "WeChat", processPath: nil, downloadSpeed: 1000, uploadSpeed: 0, connectionCount: 1),
+            ProcessTrafficItem(name: "Safari", processPath: nil, downloadSpeed: 200, uploadSpeed: 100, connectionCount: 1),
         ])
     }
 
