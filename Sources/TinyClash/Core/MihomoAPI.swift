@@ -61,6 +61,7 @@ struct ProxyItem: Decodable, Identifiable, Equatable {
 
     var isGroup: Bool { all != nil }
     var isSelectable: Bool { type == "Selector" }
+    var isURLTest: Bool { type.caseInsensitiveCompare("URLTest") == .orderedSame }
 
     /// 最近一次测速结果（默认地址与各自定义地址中取时间最新的一条）
     var lastDelay: Int? {

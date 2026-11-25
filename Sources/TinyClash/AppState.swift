@@ -279,7 +279,8 @@ final class AppState {
     private var attemptedProviderSubFetches: Set<String> = []
     private var providerSubFetchTask: Task<Void, Never>?
 
-    var api: MihomoAPI? { core.api }
+    var testAPIOverride: MihomoAPI?
+    var api: MihomoAPI? { testAPIOverride ?? core.api }
     var isRunning: Bool { coreState == .running }
     var selectedProfile: Profile? { profiles.first { $0.id == selectedProfileID } }
     /// TUN 开关显示内核的实际状态：配置文件自身开启 TUN 时也如实显示
@@ -880,7 +881,19 @@ final class AppState {
         await refreshProxies()
     }
 
-    func delay(of name: String) -> Int? { freshDelays[name] ?? proxies[name]?.lastDelay }
+    func delay(of name: String) -> Int? {
+        Self.effectiveDelay(of: name, proxies: proxies, freshDelays: freshDelays)
+    }
+
+    static func effectiveDelay(of name: String, proxies: [String: ProxyItem], freshDelays: [String: Int] = [:]) -> Int? {
+        if let group = proxies[name], group.isGroup {
+            let chain = resolvedChain(from: group, in: proxies)
+            if let leaf = chain.last, leaf != name {
+                return freshDelays[leaf] ?? proxies[leaf]?.lastDelay ?? freshDelays[name] ?? group.lastDelay
+            }
+        }
+        return freshDelays[name] ?? proxies[name]?.lastDelay
+    }
 
     static let builtinPolicies = ["DIRECT", "REJECT", "REJECT-DROP", "PASS"]
 
@@ -932,9 +945,13 @@ final class AppState {
 
     /// 从任意策略组沿 now 解析到最终节点（含起点），用于卡片显示实际出站
     func resolvedChain(from group: ProxyItem) -> [String] {
+        Self.resolvedChain(from: group, in: proxies)
+    }
+
+    static func resolvedChain(from group: ProxyItem, in proxies: [String: ProxyItem]) -> [String] {
         var item = group
         var chain = [item.name]
-        while let next = item.now, !chain.contains(next), chain.count < 6 {
+        while let next = item.now, !next.isEmpty, !chain.contains(next), chain.count < 6 {
             chain.append(next)
             guard let n = proxies[next], n.isGroup else { break }
             item = n
@@ -942,15 +959,18 @@ final class AppState {
         return chain
     }
 
+    func isTestingItem(_ name: String) -> Bool {
+        if testingProxies.contains(name) || testingGroups.contains(name) { return true }
+        guard let group = proxies[name], group.isGroup else { return false }
+        return resolvedChain(from: group).contains { testingProxies.contains($0) || testingGroups.contains($0) }
+    }
+
     /// 是否真的在接管流量（内核运行且开启了系统代理或 TUN）
     var isProxying: Bool { isRunning && (systemProxyEnabled || tunActive) }
 
-    /// 测一个策略组：组内每个节点单独测速，全部节点先标为测速中，结果逐个出现
+    /// 测一个策略组：组内每个节点单独测速，全部节点先标为测速中，结果逐个出现；自动选择组完成后切到延迟最低节点
     func testGroup(_ group: String) async {
-        guard api != nil, !testingGroups.contains(group) else { return }
-        testingGroups.insert(group)
-        await runGroupTest(group)
-        await refreshProxies()
+        await testGroups([group])
     }
 
     /// 多个策略组同时测速：所有组先显示测速中，最多 4 个策略组并发，节点探测统一经过并发上限排队
@@ -958,40 +978,77 @@ final class AppState {
     private let groupTestLimiter = AsyncLimiter(limit: AppState.groupTestConcurrency)
 
     func testGroups(_ names: [String]) async {
-        let names = names.filter { api != nil && !testingGroups.contains($0) }
-        guard !names.isEmpty else { return }
-        testingGroups.formUnion(names)
+        guard api != nil else { return }
+        var seen = Set<String>()
+        let requested = names.filter { !testingGroups.contains($0) && seen.insert($0).inserted }
+        guard !requested.isEmpty else { return }
+        // URLTest 分组优先启动探测，确保共享节点优先使用自动选择分组自身的 testUrl
+        let ordered = requested.filter { proxies[$0]?.isURLTest == true }
+            + requested.filter { proxies[$0]?.isURLTest != true }
+        let discoveredAutoGroups = ordered.reduce(into: Set<String>()) { acc, name in
+            acc.formUnion(Self.probeTargets(forGroup: name, in: proxies, defaultURL: delayTestURL).urlTestGroups)
+        }
+        let implicitAutoGroups = discoveredAutoGroups.subtracting(ordered).subtracting(testingGroups)
+        testingGroups.formUnion(ordered)
+        testingGroups.formUnion(implicitAutoGroups)
+
         let limiter = groupTestLimiter
-        await withTaskGroup(of: Void.self) { group in
-            for name in names {
+        var measured: [String: Int] = [:]
+        await withTaskGroup(of: [String: Int].self) { group in
+            for name in ordered {
                 group.addTask {
                     await limiter.acquire()
-                    await self.runGroupTest(name)
+                    let result = await self.runGroupTest(name)
                     await limiter.release()
+                    return result
                 }
             }
+            for await result in group {
+                for (k, v) in result { measured[k] = v }
+            }
         }
-        await refreshProxies()
+        testingGroups.subtract(implicitAutoGroups)
+        await finishManualDelayTest(
+            measuredDelays: measured,
+            explicitGroups: Set(ordered).union(discoveredAutoGroups)
+        )
     }
 
-    func testProxy(_ name: String, provider: String? = nil) async {
-        guard api != nil, !testingProxies.contains(name) else { return }
-        await probeDelay(name, url: delayTestURL, provider: provider).value
+    func testProxy(_ name: String, provider: String? = nil, inGroup: String? = nil) async {
+        guard api != nil else { return }
+        if let item = proxies[name], item.isGroup {
+            if item.isURLTest {
+                await testGroup(name)
+                return
+            }
+            let chain = resolvedChain(from: item)
+            if let autoName = chain.first(where: { proxies[$0]?.isURLTest == true }) {
+                await testGroup(autoName)
+                return
+            }
+            if let leaf = chain.last, leaf != name {
+                await testProxy(leaf, inGroup: item.name)
+                return
+            }
+        }
+        guard !testingProxies.contains(name) else { return }
+        let url = inGroup.flatMap { proxies[$0]?.testUrl }.flatMap { $0.isEmpty ? nil : $0 } ?? delayTestURL
+        let delay = await probeDelay(name, url: url, provider: provider).value
         flushStagedDelays()
-        await refreshProxies()
+        await finishManualDelayTest(measuredDelays: [name: delay])
     }
 
     func testNodes(_ names: [String], provider: String? = nil) async {
         guard api != nil, !names.isEmpty else { return }
-        await runNodeBatchTest(names, url: delayTestURL, provider: provider)
-        await refreshProxies()
+        let measured = await runNodeBatchTest(names, url: delayTestURL, provider: provider)
+        await finishManualDelayTest(measuredDelays: measured)
     }
 
     /// 同时进行的节点探测上限：组内节点逐个单独测，避免几百个探测同时发出
     static let delayTestConcurrency = 8
     private let delayLimiter = AsyncLimiter(limit: AppState.delayTestConcurrency)
     /// 正在排队或进行中的节点探测；别的组也包含同一节点时直接等它，不重复测
-    private var delayProbes: [String: Task<Void, Never>] = [:]
+    private var delayProbes: [String: Task<Int, Never>] = [:]
     /// 已测完、但还没随 refreshProxies 拿到内核数据的延迟，让结果逐个显示
     private var freshDelays: [String: Int] = [:]
     /// 批量测速期间缓冲已完成的节点结果，每 80ms 合并写回一次 @Observable 属性，避免 O(N^2) 重绘
@@ -1002,38 +1059,223 @@ final class AppState {
     private var nodeProviders: [String: String] = [:]
 
     /// 调用方须先把组放进 testingGroups，结束时由这里移除
-    private func runGroupTest(_ group: String) async {
-        let url = proxies[group]?.testUrl.flatMap { $0.isEmpty ? nil : $0 } ?? delayTestURL
-        await runNodeBatchTest(proxies[group]?.all ?? [], url: url)
+    private func runGroupTest(_ group: String) async -> [String: Int] {
+        let targets = Self.probeTargets(forGroup: group, in: proxies, defaultURL: delayTestURL).targets
+        let measured = await runProbeTargets(targets)
         testingGroups.remove(group)
+        return measured
     }
 
-    private func runNodeBatchTest(_ names: [String], url: String, provider: String? = nil) async {
+    private func runNodeBatchTest(_ names: [String], url: String, provider: String? = nil) async -> [String: Int] {
         var seen = Set<String>()
-        let members = names.filter { seen.insert($0).inserted }
-        let unprobed = members.filter { delayProbes[$0] == nil }
+        let targets = names.filter { seen.insert($0).inserted }.map { (name: $0, url: url) }
+        return await runProbeTargets(targets, provider: provider)
+    }
+
+    private func runProbeTargets(_ targets: [(name: String, url: String)], provider: String? = nil) async -> [String: Int] {
+        let unprobed = targets.map(\.name).filter { delayProbes[$0] == nil }
         if !unprobed.isEmpty {
             testingProxies.formUnion(unprobed)
         }
-        let probes = members.map { probeDelay($0, url: url, provider: provider, markTesting: false) }
-        for probe in probes { await probe.value }
+        let probes = targets.map { ($0.name, probeDelay($0.name, url: $0.url, provider: provider, markTesting: false)) }
+        var measured: [String: Int] = [:]
+        for (name, probe) in probes {
+            measured[name] = await probe.value
+        }
         flushStagedDelays()
+        return measured
     }
 
-    private func probeDelay(_ name: String, url: String, provider: String? = nil, markTesting: Bool = true) -> Task<Void, Never> {
+    private func probeDelay(_ name: String, url: String, provider: String? = nil, markTesting: Bool = true) -> Task<Int, Never> {
         if let probe = delayProbes[name] { return probe }
         if markTesting { testingProxies.insert(name) }
         let api = api, provider = provider ?? nodeProviders[name], timeout = delayTimeout, limiter = delayLimiter
-        let probe = Task {
+        let probe = Task<Int, Never> {
             await limiter.acquire()
             // 超时或节点不可用时内核返回错误，按超时显示
             let delay = (try? await api?.proxyDelay(name: name, provider: provider, url: url, timeout: timeout)) ?? 0
             await limiter.release()
             stageDelayResult(name: name, delay: delay)
             delayProbes[name] = nil
+            return delay
         }
         delayProbes[name] = probe
         return probe
+    }
+
+    /// 手动测速完成后刷新节点数据，并将受影响的自动选择策略组切换到延迟最低的存活成员
+    private func finishManualDelayTest(measuredDelays: [String: Int], explicitGroups: Set<String> = []) async {
+        await refreshProxies()
+        guard let api else { return }
+        let plan = Self.urlTestSwitchPlan(
+            in: proxies,
+            probedNodes: Set(measuredDelays.keys),
+            explicitGroups: explicitGroups,
+            delayOverrides: measuredDelays
+        )
+        guard !plan.isEmpty else { return }
+        var switched = false
+        for step in plan {
+            if (try? await api.select(group: step.group, proxy: step.target)) != nil {
+                proxies[step.group]?.now = step.target
+                switched = true
+            }
+        }
+        if switched {
+            await refreshProxies()
+        }
+    }
+
+    /// 展开策略组测速目标：子分组为 URLTest 时一并展开其成员测速，以便测速后切换到最低延迟节点
+    static func probeTargets(
+        forGroup groupName: String,
+        in proxies: [String: ProxyItem],
+        defaultURL: String
+    ) -> (urlTestGroups: Set<String>, targets: [(name: String, url: String)]) {
+        func groupTestURL(_ item: ProxyItem, fallback: String) -> String {
+            item.testUrl.flatMap { $0.isEmpty ? nil : $0 } ?? fallback
+        }
+
+        // 先收集可达 URLTest 子分组的自定义测速地址，避免父分组先引用同一节点时覆盖子分组专属 testUrl
+        var preferredURLs: [String: String] = [:]
+        var preVisited = Set<String>()
+        func collectPreferredURLs(_ name: String, inheritedURL: String) {
+            guard preVisited.insert(name).inserted, let group = proxies[name], group.isGroup else { return }
+            let url = groupTestURL(group, fallback: inheritedURL)
+            if group.isURLTest {
+                for member in group.all ?? [] where proxies[member]?.isGroup != true && preferredURLs[member] == nil {
+                    preferredURLs[member] = url
+                }
+            }
+            for member in group.all ?? [] {
+                guard let sub = proxies[member], sub.isGroup else { continue }
+                if sub.isURLTest {
+                    collectPreferredURLs(member, inheritedURL: url)
+                } else if let autoName = resolvedChain(from: sub, in: proxies).first(where: { proxies[$0]?.isURLTest == true }) {
+                    collectPreferredURLs(autoName, inheritedURL: url)
+                }
+            }
+        }
+        collectPreferredURLs(groupName, inheritedURL: defaultURL)
+
+        var visitedGroups = Set<String>()
+        var urlTestGroups = Set<String>()
+        var seenTargets = Set<String>()
+        var targets: [(name: String, url: String)] = []
+
+        func appendTarget(_ name: String, url: String) {
+            if seenTargets.insert(name).inserted {
+                targets.append((name, preferredURLs[name] ?? url))
+            }
+        }
+
+        func visitGroup(_ name: String, inheritedURL: String) {
+            guard visitedGroups.insert(name).inserted, let group = proxies[name], group.isGroup else { return }
+            let url = groupTestURL(group, fallback: inheritedURL)
+            if group.isURLTest { urlTestGroups.insert(name) }
+            for member in group.all ?? [] {
+                guard let sub = proxies[member], sub.isGroup else {
+                    appendTarget(member, url: url)
+                    continue
+                }
+                if sub.isURLTest {
+                    visitGroup(member, inheritedURL: url)
+                } else {
+                    let chain = resolvedChain(from: sub, in: proxies)
+                    if let autoName = chain.first(where: { proxies[$0]?.isURLTest == true }) {
+                        visitGroup(autoName, inheritedURL: url)
+                    } else if let leaf = chain.last, leaf != member {
+                        appendTarget(leaf, url: url)
+                    } else {
+                        appendTarget(member, url: url)
+                    }
+                }
+            }
+        }
+
+        visitGroup(groupName, inheritedURL: defaultURL)
+        return (urlTestGroups, targets)
+    }
+
+    /// 计算手动测速后各受影响的 URLTest 策略组应切换到的最低延迟成员（按由内到外的拓扑序返回）
+    static func urlTestSwitchPlan(
+        in proxies: [String: ProxyItem],
+        probedNodes: Set<String>,
+        explicitGroups: Set<String> = [],
+        delayOverrides: [String: Int] = [:]
+    ) -> [(group: String, target: String)] {
+        let nonSelectableBuiltins: Set<String> = ["REJECT", "REJECT-DROP", "PASS"]
+
+        var affected = Set(explicitGroups.filter { proxies[$0]?.isURLTest == true })
+        func groupDependsOnProbed(_ groupName: String, stack: inout Set<String>) -> Bool {
+            if affected.contains(groupName) { return true }
+            guard stack.insert(groupName).inserted, let group = proxies[groupName], group.isGroup else { return false }
+            defer { stack.remove(groupName) }
+            for member in group.all ?? [] {
+                if probedNodes.contains(member) { return true }
+                guard let sub = proxies[member], sub.isGroup else { continue }
+                if sub.isURLTest {
+                    if groupDependsOnProbed(member, stack: &stack) { return true }
+                } else {
+                    let chain = resolvedChain(from: sub, in: proxies)
+                    if chain.contains(where: { probedNodes.contains($0) }) { return true }
+                    if let autoName = chain.first(where: { proxies[$0]?.isURLTest == true }),
+                       groupDependsOnProbed(autoName, stack: &stack) {
+                        return true
+                    }
+                }
+            }
+            return false
+        }
+        for (name, item) in proxies where item.isURLTest {
+            var stack = Set<String>()
+            if groupDependsOnProbed(name, stack: &stack) {
+                affected.insert(name)
+            }
+        }
+        guard !affected.isEmpty else { return [] }
+
+        var visited = Set<String>()
+        var ordered: [String] = []
+        func postOrder(_ name: String) {
+            guard affected.contains(name), visited.insert(name).inserted,
+                  let group = proxies[name] else { return }
+            for member in group.all ?? [] {
+                guard let sub = proxies[member], sub.isGroup else { continue }
+                if sub.isURLTest {
+                    postOrder(member)
+                } else {
+                    for hop in resolvedChain(from: sub, in: proxies) where proxies[hop]?.isURLTest == true {
+                        postOrder(hop)
+                    }
+                }
+            }
+            ordered.append(name)
+        }
+        for name in affected.sorted() { postOrder(name) }
+
+        var simulated = proxies
+        var plan: [(group: String, target: String)] = []
+        for groupName in ordered {
+            guard let group = simulated[groupName], group.isURLTest else { continue }
+            let candidates: [(member: String, delay: Int)] = (group.all ?? []).compactMap { member in
+                guard !nonSelectableBuiltins.contains(member.uppercased()) else { return nil }
+                guard let d = effectiveDelay(of: member, proxies: simulated, freshDelays: delayOverrides), d > 0 else {
+                    return nil
+                }
+                return (member, d)
+            }
+            guard let minDelay = candidates.map(\.delay).min() else { continue }
+            if let current = group.now,
+               candidates.contains(where: { $0.member == current && $0.delay == minDelay }) {
+                continue
+            }
+            guard let best = candidates.first(where: { $0.delay == minDelay })?.member,
+                  group.now != best else { continue }
+            simulated[groupName]?.now = best
+            plan.append((groupName, best))
+        }
+        return plan
     }
 
     private func stageDelayResult(name: String, delay: Int) {

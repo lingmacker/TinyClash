@@ -357,14 +357,14 @@ private struct GroupDetail: View {
                             canTest: state.isRunning,
                             detail: nodeDetail(state.proxies[name], showsProtocol: showProto),
                             delay: state.delay(of: name),
-                            isTesting: state.testingProxies.contains(name),
+                            isTesting: state.isTestingItem(name),
                             onSelect: {
                                 guard canSelect, group.now != name else { return }
                                 Task { await state.select(group: group.name, proxy: name) }
                             },
                             onTest: {
                                 guard state.isRunning else { return }
-                                Task { await state.testProxy(name) }
+                                Task { await state.testProxy(name, inGroup: group.name) }
                             },
                             onCopy: { state.copy(name) }
                         )
